@@ -1,0 +1,2 @@
+route_id,service_id,trip_id,direction_id
+154,WEEKDAY,trip-154,0

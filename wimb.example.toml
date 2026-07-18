@@ -1,0 +1,5 @@
+# Copy to wimb.toml and select a stop ID from `wimb --list-stops`.
+stop_id = ""
+direction_id = 0
+bus_count = 2
+cache_dir = ".wimb"
