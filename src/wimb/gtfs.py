@@ -7,13 +7,14 @@ import json
 import os
 import tempfile
 import zipfile
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from io import TextIOWrapper
 from pathlib import Path
 
 from .client import TransitClient
-from .models import ScheduledStopTime, Stop
+from .models import ScheduledRun, ScheduledStopTime, ScheduledTrip, Stop
 
 CACHE_TTL = timedelta(days=7)
 
@@ -28,7 +29,7 @@ class GtfsStore:
     archive_path: Path
     routes: dict[str, str]
     stops: dict[str, Stop]
-    trips: dict[str, tuple[str, int | None, str]]
+    trips: dict[str, ScheduledTrip]
     stop_times: dict[str, list[ScheduledStopTime]]
     calendar: dict[str, dict[str, str]]
     calendar_dates: dict[tuple[str, date], int]
@@ -68,12 +69,20 @@ class GtfsStore:
                 rows("calendar_dates.txt") if "calendar_dates.txt" in archive.namelist() else []
             )
         routes = {row["route_id"]: row["route_long_name"] for row in route_rows}
-        stops = {row["stop_id"]: Stop(row["stop_id"], row["stop_name"]) for row in stop_rows}
+        stops = {
+            row["stop_id"]: Stop(
+                row["stop_id"],
+                row["stop_name"],
+                float(row["stop_lat"]) if row.get("stop_lat") else None,
+            )
+            for row in stop_rows
+        }
         trips = {
-            row["trip_id"]: (
-                row["route_id"],
-                int(row["direction_id"]) if row.get("direction_id") else None,
-                row["service_id"],
+            row["trip_id"]: ScheduledTrip(
+                route_id=row["route_id"],
+                direction_id=int(row["direction_id"]) if row.get("direction_id") else None,
+                service_id=row["service_id"],
+                headsign=row.get("trip_headsign") or None,
             )
             for row in trip_rows
         }
@@ -82,13 +91,12 @@ class GtfsStore:
             trip = trips.get(row["trip_id"])
             if trip is None:
                 continue
-            route_id, direction_id, service_id = trip
             stop_times.setdefault(row["trip_id"], []).append(
                 ScheduledStopTime(
                     row["trip_id"],
-                    route_id,
-                    direction_id,
-                    service_id,
+                    trip.route_id,
+                    trip.direction_id,
+                    trip.service_id,
                     row["stop_id"],
                     int(row["stop_sequence"]),
                     _parse_gtfs_time(row["departure_time"]),
@@ -135,29 +143,113 @@ class GtfsStore:
             == "1"
         )
 
-    def upcoming_at_stop(
+    def scheduled_runs_at_stop(
         self, route_id: str, stop_id: str, direction_id: int | None, now: datetime
-    ) -> list[tuple[ScheduledStopTime, datetime]]:
-        results: list[tuple[ScheduledStopTime, datetime]] = []
-        for _trip_id, entries in self.stop_times.items():
-            for entry in entries:
-                if (
-                    entry.stop_id != stop_id
-                    or entry.route_id != route_id
-                    or (direction_id is not None and entry.direction_id != direction_id)
-                ):
+    ) -> list[ScheduledRun]:
+        """Return stop times with stable run identities for nearby service dates.
+
+        The look-back is based on the largest GTFS departure offset, so a 25:10
+        departure is still associated with the previous service date at 01:10.
+        """
+        largest_offset = max(
+            (
+                entry.departure_offset
+                for entries in self.stop_times.values()
+                for entry in entries
+                if entry.route_id == route_id
+            ),
+            default=timedelta(),
+        )
+        lookback_days = max(1, largest_offset.days)
+        results: list[ScheduledRun] = []
+        for day_offset in range(-lookback_days, 2):
+            service_date = now.date() + timedelta(days=day_offset)
+            identities = self._run_identities(route_id, service_date)
+            for trip_id, (run_number, run_total) in identities.items():
+                trip = self.trips[trip_id]
+                if direction_id is not None and trip.direction_id != direction_id:
                     continue
-                for offset in (0, 1):
-                    service_day = now.date() + timedelta(days=offset)
-                    if not self.service_runs(entry.service_id, service_day):
-                        continue
-                    departure = (
-                        datetime.combine(service_day, time(tzinfo=now.tzinfo))
-                        + entry.departure_offset
+                stop_time = next(
+                    (
+                        entry
+                        for entry in self.stop_times.get(trip_id, [])
+                        if entry.stop_id == stop_id
+                    ),
+                    None,
+                )
+                if stop_time is None:
+                    continue
+                departure = (
+                    datetime.combine(service_date, time(tzinfo=now.tzinfo))
+                    + stop_time.departure_offset
+                )
+                results.append(
+                    ScheduledRun(
+                        stop_time=stop_time,
+                        scheduled_departure=departure,
+                        service_date=service_date,
+                        run_number=run_number,
+                        run_total=run_total,
+                        direction_label=self.direction_label(route_id, trip.direction_id),
                     )
-                    if departure >= now:
-                        results.append((entry, departure))
-        return sorted(results, key=lambda item: item[1])
+                )
+        return sorted(results, key=lambda run: run.scheduled_departure)
+
+    def _run_identities(self, route_id: str, service_date: date) -> dict[str, tuple[int, int]]:
+        groups: dict[int | None, list[tuple[timedelta, str]]] = {}
+        for trip_id, trip in self.trips.items():
+            entries = self.stop_times.get(trip_id, [])
+            if (
+                trip.route_id != route_id
+                or not entries
+                or not self.service_runs(trip.service_id, service_date)
+            ):
+                continue
+            anchor = min(entry.departure_offset for entry in entries)
+            groups.setdefault(trip.direction_id, []).append((anchor, trip_id))
+
+        identities: dict[str, tuple[int, int]] = {}
+        for runs in groups.values():
+            ordered = sorted(runs, key=lambda item: (item[0], item[1]))
+            for index, (_anchor, trip_id) in enumerate(ordered, start=1):
+                identities[trip_id] = (index, len(ordered))
+        return identities
+
+    def direction_label(self, route_id: str, direction_id: int | None) -> str:
+        """Describe a direction from trip geography and destination, not ID meaning."""
+        matching = [
+            (trip_id, trip)
+            for trip_id, trip in self.trips.items()
+            if trip.route_id == route_id and trip.direction_id == direction_id
+        ]
+        headsigns = [trip.headsign for _trip_id, trip in matching if trip.headsign]
+        destinations = [
+            self.stops[entries[-1].stop_id].name
+            for trip_id, _trip in matching
+            if (entries := self.stop_times.get(trip_id, [])) and entries[-1].stop_id in self.stops
+        ]
+        destination = _most_common(headsigns) or _most_common(destinations) or "unknown destination"
+        latitude_changes: list[float] = []
+        for trip_id, _trip in matching:
+            entries = self.stop_times.get(trip_id, [])
+            if not entries:
+                continue
+            first = self.stops.get(entries[0].stop_id)
+            last = self.stops.get(entries[-1].stop_id)
+            if first and last and first.latitude is not None and last.latitude is not None:
+                latitude_changes.append(last.latitude - first.latitude)
+        net_change = sum(latitude_changes)
+        if net_change < 0:
+            return f"Southbound to {destination}"
+        if net_change > 0:
+            return f"Northbound to {destination}"
+        return f"To {destination}"
+
+    def stop_sequence(self, trip_id: str, stop_id: str) -> int | None:
+        for item in self.stop_times.get(trip_id, []):
+            if item.stop_id == stop_id:
+                return item.stop_sequence
+        return None
 
     def previous_stop(self, trip_id: str, current_sequence: int) -> Stop | None:
         candidates = [
@@ -180,3 +272,7 @@ class GtfsStore:
         (cache_dir / "operator.json").write_text(
             json.dumps({"operator_id": operator_id}), encoding="utf-8"
         )
+
+
+def _most_common(values: list[str]) -> str | None:
+    return Counter(values).most_common(1)[0][0] if values else None

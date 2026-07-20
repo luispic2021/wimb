@@ -33,7 +33,7 @@ class WimbService:
         stop_ids = {
             item.stop_id
             for trip_id, items in gtfs.stop_times.items()
-            if gtfs.trips[trip_id][0] == ROUTE_ID
+            if gtfs.trips[trip_id].route_id == ROUTE_ID
             for item in items
         }
         return sorted(
@@ -51,7 +51,7 @@ class WimbService:
             raise ApiError(
                 f"Stop {stop_id!r} is not in Golden Gate Transit GTFS. Run --list-stops."
             )
-        upcoming = gtfs.upcoming_at_stop(ROUTE_ID, stop_id, direction_id, current_time)
+        scheduled_runs = gtfs.scheduled_runs_at_stop(ROUTE_ID, stop_id, direction_id, current_time)
         trip_feed = self._client.fetch_trip_updates(operator_id)
         vehicle_feed = self._client.fetch_vehicle_positions(operator_id)
         self._assert_fresh(trip_feed, "TripUpdates", current_time)
@@ -60,18 +60,19 @@ class WimbService:
         positions = [
             item
             for item in vehicle_positions(vehicle_feed)
-            if item.trip_id in gtfs.trips and gtfs.trips[item.trip_id][0] == ROUTE_ID
+            if item.trip_id in gtfs.trips and gtfs.trips[item.trip_id].route_id == ROUTE_ID
         ]
         if not positions:
             raise NoLiveVehiclesError("No live vehicles on route 154 right now.")
-        buses = build_bus_facts(gtfs, upcoming, updates, positions)[:count]
+        buses = build_bus_facts(gtfs, scheduled_runs, updates, positions, current_time)[:count]
         if not buses:
             raise NoUsableRealtimeDataError(
-                "Live route-154 vehicles exist, but 511 has no current-stop delay fact to display."
+                "Live route-154 vehicles exist, but none are still approaching this stop "
+                "with a confirmed stop-level deviation."
             )
-        return RouteSnapshot(
-            ROUTE_ID, gtfs.routes[ROUTE_ID], selected_stop, tuple(buses), current_time
-        )
+        directions = {bus.direction_label for bus in buses}
+        direction_label = directions.pop() if len(directions) == 1 else "All directions"
+        return RouteSnapshot(ROUTE_ID, direction_label, selected_stop, tuple(buses), current_time)
 
     def _operator_id(self, now: datetime) -> str:
         cache_path = self._cache_dir / "operator.json"
