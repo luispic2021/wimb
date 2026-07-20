@@ -1,2 +1,16 @@
-route_id,service_id,trip_id,direction_id
-154,WEEKDAY,trip-154,0
+route_id,service_id,trip_id,trip_headsign,direction_id
+154,WEEKDAY,sb-1,San Francisco,0
+154,WEEKDAY,sb-2,San Francisco,0
+154,WEEKDAY,sb-3,San Francisco,0
+154,WEEKDAY,sb-4,San Francisco,0
+154,WEEKDAY,sb-5,San Francisco,0
+154,WEEKDAY,sb-6,San Francisco,0
+154,WEEKDAY,sb-7,San Francisco,0
+154,WEEKDAY,nb-1,Novato,1
+154,WEEKDAY,nb-2,Novato,1
+154,WEEKDAY,nb-3,Novato,1
+154,WEEKDAY,nb-4,Novato,1
+154,WEEKDAY,nb-5,Novato,1
+154,WEEKDAY,nb-6,Novato,1
+154,WEEKDAY,nb-7,Novato,1
+154,SPECIAL,special-sb,San Francisco,0

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from google.transit import gtfs_realtime_pb2  # type: ignore[import-untyped]
 
@@ -31,7 +31,12 @@ def trip_updates(feed: gtfs_realtime_pb2.FeedMessage) -> list[TripUpdate]:
         )
         results.append(
             TripUpdate(
-                descriptor.trip_id, descriptor.route_id or None, update.vehicle.id or None, updates
+                descriptor.trip_id,
+                descriptor.route_id or None,
+                update.vehicle.id or None,
+                updates,
+                datetime.fromtimestamp(update.timestamp, UTC) if update.timestamp else None,
+                _service_date(descriptor.start_date),
             )
         )
     return results
@@ -57,6 +62,11 @@ def vehicle_positions(feed: gtfs_realtime_pb2.FeedMessage) -> list[VehiclePositi
                 current_stop_sequence=vehicle.current_stop_sequence or None,
                 status=statuses.get(vehicle.current_status, StopStatus.UNKNOWN),
                 timestamp=timestamp,
+                service_date=_service_date(vehicle.trip.start_date),
             )
         )
     return results
+
+
+def _service_date(value: str) -> date | None:
+    return datetime.strptime(value, "%Y%m%d").date() if value else None

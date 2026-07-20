@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 from google.transit import gtfs_realtime_pb2
 
 from wimb.models import StopStatus
@@ -12,20 +14,27 @@ def test_parses_protobuf_trip_update_and_vehicle_position_fixture() -> None:
     trip_entity = feed.entity.add()
     trip_entity.trip_update.trip.trip_id = "trip-154"
     trip_entity.trip_update.trip.route_id = "154"
+    trip_entity.trip_update.trip.start_date = "20260713"
     trip_entity.trip_update.vehicle.id = "1204"
+    trip_entity.trip_update.timestamp = 1_784_000_000
     stop_update = trip_entity.trip_update.stop_time_update.add()
     stop_update.stop_sequence = 2
     stop_update.stop_id = "B"
     stop_update.departure.delay = 240
     vehicle_entity = feed.entity.add()
     vehicle_entity.vehicle.trip.trip_id = "trip-154"
+    vehicle_entity.vehicle.trip.start_date = "20260713"
     vehicle_entity.vehicle.vehicle.id = "1204"
     vehicle_entity.vehicle.current_stop_sequence = 3
     vehicle_entity.vehicle.current_status = gtfs_realtime_pb2.VehiclePosition.IN_TRANSIT_TO
+    vehicle_entity.vehicle.timestamp = 1_784_000_010
 
     parsed_updates = trip_updates(feed)
     parsed_positions = vehicle_positions(feed)
 
     assert parsed_updates[0].stop_updates[0].departure_delay_seconds == 240
+    assert parsed_updates[0].service_date == date(2026, 7, 13)
+    assert parsed_updates[0].timestamp == datetime.fromtimestamp(1_784_000_000, UTC)
     assert parsed_positions[0].status is StopStatus.IN_TRANSIT_TO
     assert parsed_positions[0].stop_id is None
+    assert parsed_positions[0].service_date == date(2026, 7, 13)

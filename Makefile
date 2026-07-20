@@ -9,8 +9,8 @@ test:
 	.venv/bin/python -m pytest
 
 lint:
-	.venv/bin/python -m ruff check src tests
-	.venv/bin/python -m mypy src
+	.venv/bin/python -m ruff check src scripts tests
+	.venv/bin/python -m mypy src scripts
 
 run:
 	.venv/bin/wimb

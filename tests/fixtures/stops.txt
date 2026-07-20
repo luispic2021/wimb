@@ -1,4 +1,4 @@
-stop_id,stop_name
-A,Novato
-B,Manzanita Park & Ride
-C,Larkspur Landing
+stop_id,stop_name,stop_lat
+A,Novato,38.1074
+B,Manzanita Park & Ride,37.8799
+C,San Francisco,37.7749
