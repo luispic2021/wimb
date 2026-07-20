@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from io import BytesIO
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -18,6 +18,18 @@ from .errors import ApiAuthenticationError, ApiError, ApiUnavailableError
 
 LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://api.511.org/transit"
+
+
+class TransitDataClient(Protocol):
+    """Transport contract shared by the live client and cache decorator."""
+
+    def fetch_operators(self) -> list[dict[str, Any]]: ...
+
+    def fetch_gtfs(self, operator_id: str) -> bytes: ...
+
+    def fetch_trip_updates(self, operator_id: str) -> gtfs_realtime_pb2.FeedMessage: ...
+
+    def fetch_vehicle_positions(self, operator_id: str) -> gtfs_realtime_pb2.FeedMessage: ...
 
 
 class TransitClient:

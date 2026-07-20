@@ -4,16 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wimb"
-version = "0.1.0"
+version = "0.2.0"
 description = "Transparent Route 154 arrival estimates from confirmed schedule deviations."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi==0.139.2",
   "gtfs-realtime-bindings==1.0.0",
+  "uvicorn==0.51.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "httpx2==2.7.0",
   "mypy==1.15.0",
   "pytest==8.3.5",
   "ruff==0.9.10",
@@ -24,6 +27,9 @@ wimb = "wimb.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"wimb.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

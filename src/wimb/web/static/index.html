@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#102a43">
+    <title>WIMB · Route 154</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">Golden Gate Transit · Route 154</p>
+        <h1>Where Is My Bus?</h1>
+        <p class="intro">
+          See which published commuter run is coming and its latest confirmed
+          schedule deviation—always tied to the stop where it was observed.
+        </p>
+      </header>
+
+      <section class="controls" aria-labelledby="trip-heading">
+        <div class="section-heading">
+          <div>
+            <p class="step">Your commute</p>
+            <h2 id="trip-heading">Choose a direction and stop</h2>
+          </div>
+          <button id="refresh" class="refresh" type="button" disabled>Refresh</button>
+        </div>
+
+        <div class="fields">
+          <label>
+            <span>Direction</span>
+            <select id="direction" disabled>
+              <option>Loading directions…</option>
+            </select>
+          </label>
+          <label>
+            <span>Stop</span>
+            <select id="stop" disabled>
+              <option>Select a direction first</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section id="status" class="status-panel" aria-live="polite" aria-busy="true">
+        <div class="state-card">
+          <div class="pulse" aria-hidden="true"></div>
+          <p class="state-title">Loading Route 154…</p>
+          <p class="state-copy">Getting the timetable choices ready.</p>
+        </div>
+      </section>
+
+      <footer>
+        WIMB uses factual GTFS-realtime evidence. It does not claim a bus has
+        reached a stop until vehicle progress supports it.
+      </footer>
+    </main>
+  </body>
+</html>

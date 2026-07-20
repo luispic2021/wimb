@@ -17,7 +17,7 @@ future StopTimeUpdate as a completed observation.
 
 ## Architecture and project structure
 
-This is a modular Python monolith and terminal application:
+This is a modular Python monolith with terminal and FastAPI delivery layers:
 
 - `src/wimb/client.py`: read-only 511 HTTP and protobuf transport.
 - `src/wimb/gtfs.py`: static GTFS caching, parsing, service calendars, run identity,
@@ -29,14 +29,22 @@ This is a modular Python monolith and terminal application:
 - `src/wimb/service.py`: Route 154 application orchestration and feed freshness.
 - `src/wimb/presentation.py`: terminal rendering only.
 - `src/wimb/config.py` and `cli.py`: local configuration and CLI wiring.
+- `src/wimb/realtime_cache.py`: one-process paired realtime feed cache and concurrent
+  refresh deduplication for web requests.
+- `src/wimb/web/app.py` and `schemas.py`: FastAPI entry point, versioned `/api/v1`
+  routes, explicit response schemas, and HTTP error mapping.
+- `src/wimb/web/static/`: plain HTML, CSS, and JavaScript for the responsive UI;
+  browser data access goes only through `/api/v1`.
 - `scripts/audit_route_154.py`: cron-invoked Route 154 CLI audit capture; it records
   validation evidence and is not application operational logging.
 - `tests/fixtures`: offline GTFS text fixtures; protobuf fixtures are built in memory.
 
-Keep domain and presentation logic separate. Prefer focused additions over broad
-repository restructuring. The intended deployment path is a FastAPI layer later,
-with the modular monolith on one DigitalOcean droplet; neither is part of the CLI
-MVP.
+Keep domain and presentation logic separate. The CLI and FastAPI layer must call
+the same application and domain services; never duplicate GTFS matching, run
+numbering, eligibility, or deviation logic in routes or browser code. Prefer
+focused additions over broad repository restructuring. The intended production
+shape is one DigitalOcean droplet with Caddy/HTTPS in front of a localhost-bound
+Uvicorn process.
 
 ## GTFS and realtime semantics
 
@@ -74,10 +82,13 @@ make install
 make test
 make lint
 make run
+make web
 ```
 
 Run a one-shot snapshot with `.venv/bin/wimb --stop STOP_ID --direction ID` and
 discover Route 154 stops with `.venv/bin/wimb --list-stops`.
+Run the local web application with `make web`; its OpenAPI documentation is at
+`/docs`.
 
 ## Configuration, security, and conventions
 
@@ -85,6 +96,12 @@ Keep the 511 key in `WIMB_API_KEY` in the shell or an untracked `.env`; never pr
 commit, log, or embed it in URLs shown to users. Cached public GTFS and the minimal
 latest-progress checkpoint belong in `.wimb/`. Network access remains read-only;
 poll only when the API quota is known to support it.
+
+Browsers must never call 511 directly or receive its credential. Web status
+requests use the centralized process-local realtime cache, which stores paired
+TripUpdates and VehiclePositions for approximately 60 seconds and deduplicates
+concurrent refreshes. Run one Uvicorn worker; multiple workers require a shared
+cache in a later architecture.
 
 The audit collector writes text and JSONL records under `/var/log/wimb` by default.
 It must invoke the existing CLI rather than duplicate domain logic, and neither
@@ -96,9 +113,15 @@ then `make lint` for Ruff and strict mypy before
 committing. Preserve explicit user-facing failures when live data is absent,
 stale, or insufficient.
 
+Version API routes under `/api/v1` and use explicit Pydantic response schemas.
+Map invalid resources, no-service and uncertainty states, stale feeds, upstream
+authentication, temporary upstream failure, and unexpected errors intentionally;
+never expose secrets or raw internal exceptions in HTTP responses or logs.
+
 ## Explicitly out of scope
 
-Do not add other routes, FastAPI, a web UI, deployment automation, accounts,
+Do not add other transit routes, deployment automation, Caddy configuration,
+containers, multiple Uvicorn workers, shared caches such as Redis, accounts,
 subscriptions, databases, historical tracking beyond the expiring latest-progress
-checkpoint, maps, notifications, machine learning, or broad architectural
-restructuring during the Route 154 CLI MVP.
+checkpoint, maps, notifications, machine learning, frontend frameworks, or broad
+architectural restructuring.

@@ -9,6 +9,14 @@ class ConfigurationError(WimbError):
     """Required local configuration is missing or invalid."""
 
 
+class InvalidDirectionError(WimbError):
+    """The requested direction is not published for Route 154."""
+
+
+class InvalidStopError(WimbError):
+    """The requested stop is not served by the requested Route 154 direction."""
+
+
 class ApiError(WimbError):
     """The 511 API could not fulfil a request."""
 

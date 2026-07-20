@@ -20,6 +20,16 @@ class Settings:
     stale_after_seconds: int = 180
 
 
+def load_dotenv(path: Path) -> None:
+    """Load simple KEY=VALUE local config without adding a runtime dependency."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key and not key.lstrip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
 def load_settings(
     config_path: Path, stop_id: str | None, direction_id: int | None, bus_count: int | None
 ) -> Settings:

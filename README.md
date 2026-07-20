@@ -1,8 +1,8 @@
 # WIMB — Where Is My Bus?
 
-WIMB is a terminal display for Golden Gate Transit Route 154 (Novato ↔ San
-Francisco). It answers: *which commuter run is coming, and when should it reach my
-stop based on its latest confirmed schedule deviation?*
+WIMB is a terminal and web application for Golden Gate Transit Route 154 (Novato ↔
+San Francisco). It answers: *which commuter run is coming, and when should it reach
+my stop based on its latest confirmed schedule deviation?*
 
 The arrival estimate is deliberately simple and auditable: the selected stop's
 scheduled time plus the deviation measured at the latest stop supported by realtime
@@ -32,6 +32,54 @@ Find route-154 stop IDs, then put one in `wimb.toml` or pass it at runtime:
 ```
 
 Run `make run` after configuring `wimb.toml`.
+
+## Local web application
+
+Start the FastAPI/Uvicorn application with one worker:
+
+```sh
+make web
+# Equivalent:
+.venv/bin/uvicorn wimb.web.app:app --reload --host 127.0.0.1 --port 8000
+```
+
+Open the responsive Route 154 interface at <http://127.0.0.1:8000/> and the
+interactive OpenAPI documentation at <http://127.0.0.1:8000/docs>. The UI is plain
+HTML, CSS, and JavaScript served by FastAPI. It reads directions, ordered stops,
+and transit status only through the versioned API; the browser never contacts 511
+or receives the API key.
+
+Useful API requests:
+
+```sh
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/ready
+curl http://127.0.0.1:8000/api/v1/routes
+curl http://127.0.0.1:8000/api/v1/routes/154/directions
+curl 'http://127.0.0.1:8000/api/v1/routes/154/stops?direction_id=1'
+curl 'http://127.0.0.1:8000/api/v1/routes/154/status?direction_id=1&stop_id=40581'
+```
+
+`/health` confirms only that the process is alive. `/ready` checks required local
+configuration and cache-directory access without spending 511 quota. API responses
+use timezone-aware ISO 8601 timestamps and explicit data states such as `live`,
+`no_service`, `no_live_vehicles`, and `no_usable_realtime_data`. Invalid selections,
+stale feeds, rejected server credentials, temporary 511 failures, and unexpected
+errors have distinct status codes and stable error codes.
+
+### Web cache and production direction
+
+The web runtime caches TripUpdates and VehiclePositions together in memory for 60
+seconds. Requests inside that window reuse the same pair of feeds, and concurrent
+requests share one refresh instead of issuing simultaneous 511 calls. Static GTFS
+continues to use the persistent `.wimb/` filesystem cache.
+
+The in-memory realtime cache is intentionally designed for one Uvicorn worker. A
+future multi-worker deployment will require a shared cache, but Redis and multiple
+workers are outside this version. The intended production topology is Caddy/HTTPS
+in front of a Uvicorn process bound to localhost on the same DigitalOcean droplet;
+the external port, Caddy configuration, DNS, and droplet provisioning are not
+assumed by the application.
 
 ## Usage
 
