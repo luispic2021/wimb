@@ -8,10 +8,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .client import TransitClient, feed_timestamp
-from .deviation import build_bus_facts
-from .errors import ApiError, NoLiveVehiclesError, NoUsableRealtimeDataError, StaleFeedError
+from .deviation import build_bus_listing
+from .errors import ApiError, StaleFeedError
 from .gtfs import GtfsStore
 from .models import RouteSnapshot
+from .progress import ProgressCheckpointStore
 from .realtime import trip_updates, vehicle_positions
 
 OPERATOR_NAME = "Golden Gate Transit"
@@ -62,17 +63,33 @@ class WimbService:
             for item in vehicle_positions(vehicle_feed)
             if item.trip_id in gtfs.trips and gtfs.trips[item.trip_id].route_id == ROUTE_ID
         ]
-        if not positions:
-            raise NoLiveVehiclesError("No live vehicles on route 154 right now.")
-        buses = build_bus_facts(gtfs, scheduled_runs, updates, positions, current_time)[:count]
-        if not buses:
-            raise NoUsableRealtimeDataError(
-                "Live route-154 vehicles exist, but none are still approaching this stop "
-                "with a confirmed stop-level deviation."
-            )
+        progress_store = ProgressCheckpointStore(self._cache_dir)
+        prior_progress = progress_store.load(current_time)
+        buses, no_additional_buses = build_bus_listing(
+            gtfs,
+            scheduled_runs,
+            updates,
+            positions,
+            current_time,
+            count,
+            prior_progress,
+        )
+        progress_store.update(buses, current_time)
         directions = {bus.direction_label for bus in buses}
-        direction_label = directions.pop() if len(directions) == 1 else "All directions"
-        return RouteSnapshot(ROUTE_ID, direction_label, selected_stop, tuple(buses), current_time)
+        if len(directions) == 1:
+            direction_label = directions.pop()
+        elif direction_id is not None:
+            direction_label = gtfs.direction_label(ROUTE_ID, direction_id)
+        else:
+            direction_label = "All directions"
+        return RouteSnapshot(
+            ROUTE_ID,
+            direction_label,
+            selected_stop,
+            tuple(buses),
+            current_time,
+            no_additional_buses,
+        )
 
     def _operator_id(self, now: datetime) -> str:
         cache_path = self._cache_dir / "operator.json"

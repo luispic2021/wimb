@@ -3,16 +3,17 @@
 ## Purpose and scope
 
 WIMB (“Where Is My Bus?”) helps Golden Gate Transit Route 154 commuters identify
-which published commuter run is coming and see its factual schedule deviation at
-the latest stop supported by realtime evidence. The MVP is Route 154 only.
+which published commuter run is coming and see a transparent arrival estimate based
+on the latest stop supported by realtime evidence. The MVP is Route 154 only.
 
 “Bus X of 7” means the run's 1-based position in the active service date and
 direction's published timetable. It is not the physical vehicle or fleet ID.
 Vehicle ID is secondary diagnostic information.
 
-WIMB is not an arrival predictor. Keep every deviation attached to its evidence
-stop and render `as of <stop>`. Never project that deviation to the user's selected
-stop or present a predicted future StopTimeUpdate as a completed observation.
+Compute arrival as the selected stop's scheduled time plus the deviation at the
+latest confirmed evidence stop, minus the snapshot time. Keep every estimate
+attached to its evidence stop and render `as of <stop>`. Never present a predicted
+future StopTimeUpdate as a completed observation.
 
 ## Architecture and project structure
 
@@ -23,6 +24,8 @@ This is a modular Python monolith and terminal application:
   stop lookup, and direction derivation.
 - `src/wimb/realtime.py`: GTFS-Realtime protobuf-to-domain translation.
 - `src/wimb/deviation.py`: realtime progress eligibility and factual evidence join.
+- `src/wimb/progress.py`: locked, atomic latest-progress checkpoint used to reject
+  regressing stop sequences across separate CLI and cron executions.
 - `src/wimb/service.py`: Route 154 application orchestration and feed freshness.
 - `src/wimb/presentation.py`: terminal rendering only.
 - `src/wimb/config.py` and `cli.py`: local configuration and CLI wiring.
@@ -54,7 +57,12 @@ MVP.
   vehicle progress proves has been reached or passed. Withhold unsupported claims.
 - Feed header timestamps gate overall staleness. Per-bus freshness prefers the
   TripUpdate timestamp and falls back to VehiclePosition; disclose missing time.
-- Deviations within the named ±59-second tolerance render as `ON TIME`.
+- Arrival countdowns preserve whole-second precision without rounding.
+- `--count` limits timetable candidates, not only fully tracked facts. Never invent
+  missing vehicles or evidence; render explicit timetable-only states instead.
+- Retain only the furthest confirmed evidence per service-date/trip in
+  `.wimb/route-progress.json`. This expiring correctness cache is not a vehicle
+  history; never infer a stop when both current evidence and the cache are absent.
 
 ## Setup and commands
 
@@ -74,9 +82,9 @@ discover Route 154 stops with `.venv/bin/wimb --list-stops`.
 ## Configuration, security, and conventions
 
 Keep the 511 key in `WIMB_API_KEY` in the shell or an untracked `.env`; never print,
-commit, log, or embed it in URLs shown to users. Cached public GTFS data belongs in
-`.wimb/`. Live validation must be read-only and one-shot unless the API quota is
-known to support polling.
+commit, log, or embed it in URLs shown to users. Cached public GTFS and the minimal
+latest-progress checkpoint belong in `.wimb/`. Network access remains read-only;
+poll only when the API quota is known to support it.
 
 The audit collector writes text and JSONL records under `/var/log/wimb` by default.
 It must invoke the existing CLI rather than duplicate domain logic, and neither
@@ -91,5 +99,6 @@ stale, or insufficient.
 ## Explicitly out of scope
 
 Do not add other routes, FastAPI, a web UI, deployment automation, accounts,
-subscriptions, databases, historical tracking, maps, notifications, machine
-learning, or broad architectural restructuring during the Route 154 CLI MVP.
+subscriptions, databases, historical tracking beyond the expiring latest-progress
+checkpoint, maps, notifications, machine learning, or broad architectural
+restructuring during the Route 154 CLI MVP.

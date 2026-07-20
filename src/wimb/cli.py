@@ -17,7 +17,9 @@ from .service import WimbService
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Where Is My Bus? Facts, not arrival predictions.")
+    parser = argparse.ArgumentParser(
+        description="Where Is My Bus? Transparent Route 154 arrival estimates."
+    )
     parser.add_argument("--config", type=Path, default=Path("wimb.toml"))
     parser.add_argument("--stop", help="GTFS stop ID; overrides wimb.toml")
     parser.add_argument("--direction", type=int, choices=(0, 1), help="GTFS direction ID")

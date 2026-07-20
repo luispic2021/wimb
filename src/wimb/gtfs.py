@@ -183,10 +183,14 @@ class GtfsStore:
                     datetime.combine(service_date, time(tzinfo=now.tzinfo))
                     + stop_time.departure_offset
                 )
+                scheduled_start = datetime.combine(service_date, time(tzinfo=now.tzinfo)) + min(
+                    entry.departure_offset for entry in self.stop_times[trip_id]
+                )
                 results.append(
                     ScheduledRun(
                         stop_time=stop_time,
                         scheduled_departure=departure,
+                        scheduled_start=scheduled_start,
                         service_date=service_date,
                         run_number=run_number,
                         run_total=run_total,

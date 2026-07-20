@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-import sys
 from datetime import datetime
 
-from .models import RouteSnapshot
-
-RED = "\033[91m"
-YELLOW = "\033[93m"
-RESET = "\033[0m"
-ON_TIME_TOLERANCE_SECONDS = 59
+from .models import RouteSnapshot, TrackingStatus
 
 
 def render_snapshot(snapshot: RouteSnapshot, color: bool | None = None) -> str:
-    use_color = sys.stdout.isatty() if color is None else color
     lines = [
         f"Route {snapshot.route_id}",
         f"Direction: {snapshot.direction_label}",
@@ -22,33 +15,43 @@ def render_snapshot(snapshot: RouteSnapshot, color: bool | None = None) -> str:
         "",
     ]
     for bus in snapshot.buses:
-        on_time = abs(bus.deviation_seconds) <= ON_TIME_TOLERANCE_SECONDS
-        minutes = (abs(bus.deviation_seconds) + 30) // 60
-        state = (
-            "BEHIND"
-            if bus.deviation_seconds > 0
-            else "AHEAD"
-            if bus.deviation_seconds < 0
-            else "ON TIME"
-        )
-        if on_time:
-            state = "ON TIME"
-        if use_color and state != "ON TIME":
-            state = f"{RED if state == 'BEHIND' else YELLOW}{state}{RESET}"
         scheduled = bus.scheduled_departure.strftime("%-I:%M %p")
-        deviation = "ON TIME" if on_time else f"{minutes} min {state}"
         vehicle = f" · Vehicle {bus.vehicle_id}" if bus.vehicle_id else ""
         bus_direction = (
             f" · {bus.direction_label}" if snapshot.direction_label == "All directions" else ""
         )
-        lines.extend(
-            (
-                f"Bus {bus.run_number} of {bus.run_total}{bus_direction} · scheduled {scheduled}",
-                f"{deviation} as of {bus.as_of_stop.name} · "
-                f"{_freshness(bus.observed_at, snapshot.fetched_at)}{vehicle}",
-            )
+        lines.append(
+            f"Bus {bus.run_number} of {bus.run_total}{bus_direction} · "
+            f"scheduled {scheduled}{vehicle}"
         )
-    return "\n".join(lines)
+        if bus.tracking_status is TrackingStatus.TRACKED:
+            assert bus.as_of_stop is not None
+            assert bus.estimated_arrival is not None
+            seconds_until = int((bus.estimated_arrival - snapshot.fetched_at).total_seconds())
+            if seconds_until >= 0:
+                arrival = f"Arrives in: {_duration(seconds_until)}"
+            else:
+                arrival = f"Arrival estimate overdue by: {_duration(abs(seconds_until))}"
+            lines.append(
+                f"{arrival} as of {bus.as_of_stop.name} · "
+                f"{_freshness(bus.observed_at, snapshot.fetched_at)}"
+            )
+        elif bus.tracking_status is TrackingStatus.NOT_DEPARTED:
+            lines.append("Timetable only: this bus has not departed yet.")
+        else:
+            lines.append("Timetable only: live tracking is currently unavailable.")
+        lines.append("")
+    if snapshot.no_additional_buses:
+        lines.append("No additional buses are scheduled in this direction today.")
+    return "\n".join(lines).rstrip()
+
+
+def _duration(total_seconds: int) -> str:
+    if total_seconds < 60:
+        return f"{total_seconds:02d} seconds"
+    minutes, seconds = divmod(total_seconds, 60)
+    minute_unit = "minute" if minutes == 1 else "minutes"
+    return f"{minutes} {minute_unit} and {seconds:02d} seconds"
 
 
 def _freshness(observed_at: datetime | None, fetched_at: datetime) -> str:

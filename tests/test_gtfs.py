@@ -20,6 +20,7 @@ def test_numbers_seven_southbound_runs_by_first_trip_departure(gtfs_store: GtfsS
 
     assert (run.run_number, run.run_total) == (6, 7)
     assert run.direction_label == "Southbound to San Francisco"
+    assert run.scheduled_start == datetime(2026, 7, 13, 8, 30, tzinfo=UTC)
 
 
 def test_run_number_is_stable_across_selected_stops(gtfs_store: GtfsStore) -> None:

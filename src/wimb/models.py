@@ -14,6 +14,12 @@ class StopStatus(Enum):
     UNKNOWN = "unknown"
 
 
+class TrackingStatus(Enum):
+    TRACKED = "tracked"
+    NOT_DEPARTED = "not_departed"
+    UNAVAILABLE = "unavailable"
+
+
 @dataclass(frozen=True)
 class Stop:
     stop_id: str
@@ -44,6 +50,7 @@ class ScheduledTrip:
 class ScheduledRun:
     stop_time: ScheduledStopTime
     scheduled_departure: datetime
+    scheduled_start: datetime
     service_date: date
     run_number: int
     run_total: int
@@ -90,14 +97,23 @@ class VehiclePosition:
 @dataclass(frozen=True)
 class BusFact:
     trip_id: str
+    service_date: date
     run_number: int
     run_total: int
     direction_label: str
     vehicle_id: str | None
     scheduled_departure: datetime
-    deviation_seconds: int
-    as_of_stop: Stop
+    deviation_seconds: int | None
+    as_of_stop: Stop | None
+    as_of_stop_sequence: int | None
     observed_at: datetime | None
+    tracking_status: TrackingStatus = TrackingStatus.TRACKED
+
+    @property
+    def estimated_arrival(self) -> datetime | None:
+        if self.deviation_seconds is None:
+            return None
+        return self.scheduled_departure + timedelta(seconds=self.deviation_seconds)
 
 
 @dataclass(frozen=True)
@@ -107,3 +123,14 @@ class RouteSnapshot:
     selected_stop: Stop
     buses: tuple[BusFact, ...]
     fetched_at: datetime
+    no_additional_buses: bool = False
+
+
+@dataclass(frozen=True)
+class ProgressEvidence:
+    trip_id: str
+    service_date: date
+    stop_sequence: int
+    stop: Stop
+    delay_seconds: int
+    observed_at: datetime | None

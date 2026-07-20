@@ -1,12 +1,13 @@
 # WIMB — Where Is My Bus?
 
-WIMB is a factual terminal display for Golden Gate Transit Route 154 (Novato ↔ San
-Francisco). It answers: *which commuter run is coming, and how was it running at
-the latest stop supported by realtime evidence?*
+WIMB is a terminal display for Golden Gate Transit Route 154 (Novato ↔ San
+Francisco). It answers: *which commuter run is coming, and when should it reach my
+stop based on its latest confirmed schedule deviation?*
 
-It is deliberately **not** an arrival predictor. A displayed deviation is measured
-at the vehicle's current or last-passed stop and is always labeled `as of <stop>`.
-WIMB never projects that deviation to your selected stop.
+The arrival estimate is deliberately simple and auditable: the selected stop's
+scheduled time plus the deviation measured at the latest stop supported by realtime
+evidence. It is always labeled `as of <stop>` and does not use an unsupported future
+StopTimeUpdate as though the bus had already reached that stop.
 
 ## Setup
 
@@ -53,8 +54,11 @@ Route 154
 Direction: Southbound to San Francisco
 Stop: Manzanita Park & Ride
 
-Bus 6 of 7 · scheduled 7:12 AM
-5 min AHEAD as of Lucas Valley Road · updated 24 sec ago · Vehicle 1204
+Bus 6 of 7 · scheduled 7:57 AM · Vehicle 964
+Arrives in: 6 minutes and 07 seconds as of Terra Linda Bus Pad · updated 14 sec ago
+
+Bus 7 of 7 · scheduled 8:27 AM
+Timetable only: this bus has not departed yet.
 ```
 
 “Bus 6 of 7” is the run's position in that service date and direction's published
@@ -68,10 +72,20 @@ headsign (or final stop) for its destination and compares the first and last sto
 latitudes to derive northbound or southbound. If GTFS lacks enough geographic data,
 WIMB honestly renders `To <destination>` instead of guessing from the ID.
 
-`AHEAD` and `BEHIND` are colorized when output is a terminal. Deviations within
-±59 seconds are `ON TIME`. Freshness comes from the TripUpdate timestamp when
-available, otherwise the VehiclePosition timestamp; a missing timestamp is shown
-as `updated time unavailable`.
+Countdowns retain whole-second precision without rounding. Values below one minute
+render as seconds; longer values render as minutes plus two-digit seconds. A
+still-approaching bus whose estimate is already in the past is labeled `Arrival
+estimate overdue by` instead of showing a negative countdown. Freshness comes from
+the TripUpdate timestamp when available, otherwise the VehiclePosition timestamp;
+a missing timestamp is shown as `updated time unavailable`.
+
+`--count` is the maximum number of timetable candidates to display. WIMB walks the
+remaining timetable in order, showing live evidence where available and an honest
+timetable-only candidate where it is not. It does not invent vehicles, last-seen
+stops, or deviations. A future run is labeled as not departed; a started run without
+usable progress is labeled `live tracking is currently unavailable`. If fewer
+candidates remain, WIMB states that no additional buses are scheduled in that
+direction today.
 
 ## Approaching and evidence rules
 
@@ -87,14 +101,25 @@ turns a future StopTimeUpdate into a historical observation.
 
 Deviation evidence is limited to a stop that VehiclePositions prove the bus has
 reached: the previous stop while it is in transit/incoming, or the current stop
-while it is stopped. A predicted update for a future stop is withheld.
+while it is stopped. A predicted update for a future stop is withheld. WIMB carries
+that confirmed deviation forward to the selected stop only for the transparent
+arrival calculation documented above.
+
+Because 511 can temporarily report a lower or missing vehicle stop sequence, WIMB
+keeps the furthest confirmed stop and its deviation for each service-date/trip pair
+in `.wimb/route-progress.json`. The file is updated under a lock with atomic
+replacement and entries expire after two days. It stores only the latest checkpoint,
+not a vehicle-location history. Separate CLI and cron executions therefore cannot
+move a bus backward from Terra Linda to Lucas Valley; when neither the current feed
+nor the checkpoint supports progress, WIMB shows timetable-only information.
 
 ## Data and rate limits
 
 On its first run, WIMB discovers the Golden Gate Transit operator through the 511
 operators endpoint, then caches that identity and the static GTFS zip in `.wimb/`.
 Static GTFS refreshes weekly. Each normal snapshot requests TripUpdates and
-VehiclePositions on demand.
+VehiclePositions on demand and refreshes the small latest-progress checkpoint when
+confirmed evidence advances.
 
 `--watch` intentionally refreshes every 60 seconds, which is two realtime requests
 per minute (120/hour). 511's published default token limit is 60/hour, so use watch
@@ -102,11 +127,12 @@ only after requesting a quota increase from 511; otherwise use one-off snapshots
 
 ## Errors are explicit
 
-- **No live vehicles on route 154 right now**: VehiclePositions contained no route-154 vehicle.
 - **Feed is stale**: WIMB refuses to present old realtime data as live.
 - **511 unavailable / rejected key**: HTTP and network failures are reported separately.
-- **No approaching bus with a stop-level deviation**: vehicles exist, but none can
-  be shown for the selected stop without forecasting.
+- **Timetable only**: the run is scheduled but WIMB cannot support a live arrival
+  estimate without fabricating realtime evidence.
+- **No additional buses**: no more timetable candidates remain for the selected
+  direction on the current calendar day.
 
 ## Development
 

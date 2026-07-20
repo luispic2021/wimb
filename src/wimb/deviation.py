@@ -1,17 +1,18 @@
-"""Pure schedule-deviation computation; deliberately contains no forecasts."""
+"""Schedule-deviation evidence and honest timetable candidate selection."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from datetime import datetime, timedelta
+from collections.abc import Iterable, Mapping
+from datetime import date, datetime, timedelta
 
 from .gtfs import GtfsStore
 from .models import (
     BusFact,
+    ProgressEvidence,
     RealtimeStopUpdate,
     ScheduledRun,
-    Stop,
     StopStatus,
+    TrackingStatus,
     TripUpdate,
     VehiclePosition,
 )
@@ -26,6 +27,7 @@ def build_bus_facts(
     updates: Iterable[TripUpdate],
     positions: Iterable[VehiclePosition],
     now: datetime,
+    prior_progress: Mapping[tuple[date, str], ProgressEvidence] | None = None,
 ) -> list[BusFact]:
     """Join scheduled runs to progress-confirmed, current-stop realtime evidence.
 
@@ -42,31 +44,123 @@ def build_bus_facts(
     for trip_id, candidate_runs in runs_by_trip.items():
         update = updates_by_trip.get(trip_id)
         position = positions_by_trip.get(trip_id)
-        if update is None or position is None:
+        if position is None:
             continue
+        if update is None:
+            update = TripUpdate(trip_id, None, position.vehicle_id, ())
         selected_run = _matching_service_run(candidate_runs, update, position, now)
         if selected_run is None:
             continue
-        if not is_still_approaching(gtfs, selected_run, position, now):
+        prior = (prior_progress or {}).get((selected_run.service_date, trip_id))
+        if not is_still_approaching(
+            gtfs,
+            selected_run,
+            position,
+            now,
+            prior.stop_sequence if prior else None,
+        ):
             continue
-        evidence = _current_stop_evidence(gtfs, trip_id, update, position)
+        current_evidence = _current_stop_evidence(gtfs, trip_id, update, position)
+        evidence = _furthest_evidence(current_evidence, prior)
         if evidence is None:
             continue
-        stop, delay_seconds = evidence
         facts.append(
             BusFact(
                 trip_id,
+                selected_run.service_date,
                 selected_run.run_number,
                 selected_run.run_total,
                 selected_run.direction_label,
                 position.vehicle_id or update.vehicle_id,
                 selected_run.scheduled_departure,
-                delay_seconds,
-                stop,
-                update.timestamp or position.timestamp,
+                evidence.delay_seconds,
+                evidence.stop,
+                evidence.stop_sequence,
+                evidence.observed_at,
             )
         )
     return sorted(facts, key=lambda fact: fact.scheduled_departure)
+
+
+def build_bus_listing(
+    gtfs: GtfsStore,
+    scheduled_runs: Iterable[ScheduledRun],
+    updates: Iterable[TripUpdate],
+    positions: Iterable[VehiclePosition],
+    now: datetime,
+    count: int,
+    prior_progress: Mapping[tuple[date, str], ProgressEvidence] | None = None,
+) -> tuple[list[BusFact], bool]:
+    """Combine tracked facts with honest timetable-only candidates."""
+    runs = [run for run in scheduled_runs if run.scheduled_departure.date() == now.date()]
+    update_items = list(updates)
+    position_items = list(positions)
+    tracked = build_bus_facts(gtfs, runs, update_items, position_items, now, prior_progress)
+    tracked_by_run = {(fact.trip_id, fact.scheduled_departure): fact for fact in tracked}
+    positions_by_trip = {
+        position.trip_id: position for position in position_items if position.trip_id
+    }
+    candidates: list[BusFact] = []
+    for run in runs:
+        key = (run.stop_time.trip_id, run.scheduled_departure)
+        fact = tracked_by_run.get(key)
+        if fact is not None:
+            candidates.append(fact)
+            continue
+
+        position = positions_by_trip.get(run.stop_time.trip_id)
+        if position is not None:
+            matching_run = _matching_service_run(
+                [run], _update_for_trip(update_items, run), position, now
+            )
+            prior = (prior_progress or {}).get((run.service_date, run.stop_time.trip_id))
+            if matching_run is None or not is_still_approaching(
+                gtfs,
+                run,
+                position,
+                now,
+                prior.stop_sequence if prior else None,
+            ):
+                continue
+            status = TrackingStatus.UNAVAILABLE
+        elif run.scheduled_start > now:
+            status = TrackingStatus.NOT_DEPARTED
+        elif run.scheduled_departure >= now:
+            status = TrackingStatus.UNAVAILABLE
+        else:
+            continue
+
+        candidates.append(
+            BusFact(
+                trip_id=run.stop_time.trip_id,
+                service_date=run.service_date,
+                run_number=run.run_number,
+                run_total=run.run_total,
+                direction_label=run.direction_label,
+                vehicle_id=position.vehicle_id if position else None,
+                scheduled_departure=run.scheduled_departure,
+                deviation_seconds=None,
+                as_of_stop=None,
+                as_of_stop_sequence=None,
+                observed_at=position.timestamp if position else None,
+                tracking_status=status,
+            )
+        )
+
+    candidates.sort(key=lambda bus: bus.scheduled_departure)
+    return candidates[:count], len(candidates) < count
+
+
+def _update_for_trip(updates: Iterable[TripUpdate], run: ScheduledRun) -> TripUpdate:
+    return next(
+        (
+            update
+            for update in updates
+            if update.trip_id == run.stop_time.trip_id
+            and (update.service_date is None or update.service_date == run.service_date)
+        ),
+        TripUpdate(run.stop_time.trip_id, None, None, ()),
+    )
 
 
 def _matching_service_run(
@@ -81,12 +175,21 @@ def _matching_service_run(
 
 
 def is_still_approaching(
-    gtfs: GtfsStore, run: ScheduledRun, position: VehiclePosition, now: datetime
+    gtfs: GtfsStore,
+    run: ScheduledRun,
+    position: VehiclePosition,
+    now: datetime,
+    confirmed_stop_sequence: int | None = None,
 ) -> bool:
     """Use vehicle progress first, then a deliberately bounded schedule fallback."""
     progress_sequence = position.current_stop_sequence
     if progress_sequence is None and position.stop_id:
         progress_sequence = gtfs.stop_sequence(run.stop_time.trip_id, position.stop_id)
+    if confirmed_stop_sequence is not None:
+        checkpoint_progress = confirmed_stop_sequence
+        if position.status is not StopStatus.STOPPED_AT:
+            checkpoint_progress += 1
+        progress_sequence = max(progress_sequence or 0, checkpoint_progress)
     if progress_sequence is not None:
         return progress_sequence <= run.stop_time.stop_sequence
     return (
@@ -101,7 +204,7 @@ def _current_stop_evidence(
     trip_id: str,
     update: TripUpdate,
     position: VehiclePosition,
-) -> tuple[Stop, int] | None:
+) -> ProgressEvidence | None:
     current_sequence = position.current_stop_sequence
     if current_sequence is None and position.stop_id:
         current_sequence = gtfs.stop_sequence(trip_id, position.stop_id)
@@ -117,7 +220,32 @@ def _current_stop_evidence(
         return None
     if stop is None or update_match is None or update_match.delay_seconds is None:
         return None
-    return stop, update_match.delay_seconds
+    if update_match.stop_sequence is None:
+        return None
+    return ProgressEvidence(
+        trip_id=trip_id,
+        service_date=position.service_date or update.service_date or date.min,
+        stop_sequence=update_match.stop_sequence,
+        stop=stop,
+        delay_seconds=update_match.delay_seconds,
+        observed_at=update.timestamp or position.timestamp,
+    )
+
+
+def _furthest_evidence(
+    current: ProgressEvidence | None, prior: ProgressEvidence | None
+) -> ProgressEvidence | None:
+    if current is None:
+        return prior
+    if prior is None or current.stop_sequence > prior.stop_sequence:
+        return current
+    if current.stop_sequence < prior.stop_sequence:
+        return prior
+    if current.observed_at is None:
+        return prior
+    if prior.observed_at is None or current.observed_at >= prior.observed_at:
+        return current
+    return prior
 
 
 def _matching_update(

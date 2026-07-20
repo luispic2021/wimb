@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "wimb"
 version = "0.1.0"
-description = "Where Is My Bus? A factual schedule-deviation CLI for Golden Gate Transit route 154."
+description = "Transparent Route 154 arrival estimates from confirmed schedule deviations."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
