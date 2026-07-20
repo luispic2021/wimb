@@ -71,6 +71,7 @@ def test_no_service_snapshot_avoids_realtime_quota(
     assert snapshot.data_status is DataStatus.NO_SERVICE
     assert snapshot.buses == ()
     assert snapshot.no_additional_buses is True
+    assert snapshot.realtime_checked is False
     assert (client.trip_calls, client.vehicle_calls) == (0, 0)
 
 
@@ -93,3 +94,58 @@ def test_fresh_empty_feeds_report_no_live_route_vehicles(
 
     assert snapshot.data_status is DataStatus.NO_LIVE_VEHICLES
     assert (client.trip_calls, client.vehicle_calls) == (1, 1)
+
+
+def test_after_final_run_reports_no_service_after_checking_for_late_bus(
+    gtfs_store: GtfsStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monday_night = datetime(2026, 7, 13, 23, 0, tzinfo=UTC)
+    client = _RealtimeClient(monday_night)
+    service = WimbService(
+        client,
+        tmp_path,
+        stale_after_seconds=90,
+        clock=lambda: monday_night,
+    )  # type: ignore[arg-type]
+    monkeypatch.setattr(WimbService, "_operator_id", lambda self, now: "GG")
+    monkeypatch.setattr(
+        service_module.GtfsStore,
+        "cached",
+        classmethod(lambda cls, client, cache_dir, operator_id, now: gtfs_store),
+    )
+
+    snapshot = service.snapshot("B", 1, 2)
+
+    assert snapshot.data_status is DataStatus.NO_SERVICE
+    assert snapshot.buses == ()
+    assert snapshot.realtime_checked is True
+    assert (client.trip_calls, client.vehicle_calls) == (1, 1)
+
+
+def test_after_midnight_service_date_run_remains_upcoming_service(
+    gtfs_store: GtfsStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    after_midnight = datetime(2026, 7, 14, 1, 0, tzinfo=UTC)
+    client = _RealtimeClient(after_midnight)
+    service = WimbService(
+        client,
+        tmp_path,
+        stale_after_seconds=90,
+        clock=lambda: after_midnight,
+    )  # type: ignore[arg-type]
+    monkeypatch.setattr(WimbService, "_operator_id", lambda self, now: "GG")
+    monkeypatch.setattr(
+        service_module.GtfsStore,
+        "cached",
+        classmethod(lambda cls, client, cache_dir, operator_id, now: gtfs_store),
+    )
+
+    snapshot = service.snapshot("B", 0, 2)
+
+    assert snapshot.data_status is DataStatus.NO_LIVE_VEHICLES
+    assert snapshot.buses[0].trip_id == "sb-7"
+    assert snapshot.realtime_checked is True

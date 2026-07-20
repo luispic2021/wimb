@@ -100,8 +100,9 @@ poll only when the API quota is known to support it.
 Browsers must never call 511 directly or receive its credential. Web status
 requests use the centralized process-local realtime cache, which stores paired
 TripUpdates and VehiclePositions for approximately 60 seconds and deduplicates
-concurrent refreshes. Run one Uvicorn worker; multiple workers require a shared
-cache in a later architecture.
+concurrent refreshes, including a short cooldown that shares refresh failures.
+Run one Uvicorn worker; multiple workers require a shared cache in a later
+architecture.
 
 The audit collector writes text and JSONL records under `/var/log/wimb` by default.
 It must invoke the existing CLI rather than duplicate domain logic, and neither

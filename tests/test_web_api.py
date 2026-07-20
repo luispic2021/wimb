@@ -2,21 +2,25 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from wimb.config import load_dotenv
 from wimb.errors import (
     ApiAuthenticationError,
     ApiError,
     ApiUnavailableError,
+    ConfigurationError,
     InvalidStopError,
     NoLiveVehiclesError,
     NoUsableRealtimeDataError,
     StaleFeedError,
 )
 from wimb.models import BusFact, DataStatus, RouteSnapshot, Stop, TrackingStatus
-from wimb.web.app import WebRuntime, create_app
+from wimb.web import app as app_module
+from wimb.web.app import WebRuntime, build_runtime, create_app
 
 NOW = datetime.fromisoformat("2026-07-20T08:00:00-07:00")
 
@@ -105,6 +109,7 @@ class _StateService(_Service):
             NOW,
             True,
             self.data_status,
+            self.data_status is not DataStatus.NO_SERVICE,
         )
 
 
@@ -134,6 +139,67 @@ def test_readiness_reports_configured_and_missing_states(client: TestClient) -> 
     assert missing.status_code == 503
     assert missing.json()["status"] == "not_ready"
     assert missing.json()["configured"] is False
+
+
+def test_malformed_toml_produces_not_ready_runtime(tmp_path: Path) -> None:
+    config_path = tmp_path / "invalid.toml"
+    config_path.write_text("direction_id = [", encoding="utf-8")
+
+    runtime = build_runtime(config_path)
+
+    assert runtime.service is None
+    assert runtime.readiness_error == f"Could not read configuration file {config_path}."
+
+
+def test_unreadable_dotenv_is_a_configuration_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.touch()
+
+    def fail_read(_self: Path, *args: object, **kwargs: object) -> str:
+        raise PermissionError("not readable")
+
+    monkeypatch.setattr(Path, "read_text", fail_read)
+
+    with pytest.raises(ConfigurationError, match="Could not read configuration file"):
+        load_dotenv(dotenv)
+
+
+def test_dotenv_read_failure_produces_not_ready_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_load(_path: Path) -> None:
+        raise ConfigurationError("Could not read configuration file .env.")
+
+    monkeypatch.setattr(app_module, "load_dotenv", fail_load)
+
+    runtime = build_runtime(tmp_path / "wimb.toml")
+
+    assert runtime.service is None
+    assert runtime.readiness_error == "Could not read configuration file .env."
+
+
+def test_cache_write_probe_failure_produces_not_ready_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_dir = tmp_path / "cache"
+    config_path = tmp_path / "wimb.toml"
+    config_path.write_text(f'cache_dir = "{cache_dir}"\n', encoding="utf-8")
+    monkeypatch.setenv("WIMB_API_KEY", "test-only-key")
+
+    def fail_probe(*args: object, **kwargs: object) -> None:
+        raise PermissionError("not writable")
+
+    monkeypatch.setattr(app_module.tempfile, "NamedTemporaryFile", fail_probe)
+
+    runtime = build_runtime(config_path)
+
+    assert runtime.service is None
+    assert runtime.readiness_error == "The configured cache directory is not writable."
 
 
 def test_routes_directions_and_ordered_stops(client: TestClient) -> None:
@@ -188,6 +254,17 @@ def test_successful_status_has_explicit_schema_and_aware_timestamps(client: Test
     }
     assert datetime.fromisoformat(bus["scheduled_time"]).tzinfo is not None
     assert datetime.fromisoformat(bus["observed_at"]).tzinfo is not None
+
+
+def test_openapi_documents_structured_error_responses(client: TestClient) -> None:
+    operation = client.get("/openapi.json").json()["paths"]["/api/v1/routes/{route_id}/status"][
+        "get"
+    ]
+
+    assert set(operation["responses"]) == {"200", "404", "409", "422", "500", "502", "503"}
+    for status_code in ("404", "409", "422", "500", "502", "503"):
+        schema = operation["responses"][status_code]["content"]["application/json"]["schema"]
+        assert schema == {"$ref": "#/components/schemas/ErrorResponse"}
 
 
 def test_validation_and_resource_failures_are_intentional(client: TestClient) -> None:

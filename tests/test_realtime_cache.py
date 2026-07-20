@@ -4,8 +4,10 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from typing import Any
 
+import pytest
 from google.transit import gtfs_realtime_pb2
 
+from wimb.errors import ApiUnavailableError
 from wimb.realtime_cache import CachedTransitClient
 
 
@@ -33,6 +35,16 @@ class _Client:
     def fetch_vehicle_positions(self, _operator_id: str) -> gtfs_realtime_pb2.FeedMessage:
         self.vehicle_calls += 1
         return _feed(self.vehicle_calls)
+
+
+class _FailingClient(_Client):
+    def fetch_trip_updates(self, _operator_id: str) -> gtfs_realtime_pb2.FeedMessage:
+        self.trip_calls += 1
+        if self.started is not None:
+            self.started.set()
+        if self.gate is not None:
+            assert self.gate.wait(timeout=2)
+        raise ApiUnavailableError("511 could not be reached.")
 
 
 def _feed(timestamp: int) -> gtfs_realtime_pb2.FeedMessage:
@@ -78,3 +90,33 @@ def test_concurrent_callers_share_one_realtime_refresh() -> None:
     assert trip_feed.header.timestamp == 1
     assert vehicle_feed.header.timestamp == 1
     assert (raw.trip_calls, raw.vehicle_calls) == (1, 1)
+
+
+def test_concurrent_callers_share_failed_refresh_and_retry_after_cooldown() -> None:
+    now = [100.0]
+    gate = Event()
+    started = Event()
+    raw = _FailingClient(gate, started)
+    cached = CachedTransitClient(
+        raw,
+        failure_ttl_seconds=5,
+        monotonic_clock=lambda: now[0],
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(cached.fetch_trip_updates, "GG")
+        assert started.wait(timeout=2)
+        second = executor.submit(cached.fetch_vehicle_positions, "GG")
+        gate.set()
+        with pytest.raises(ApiUnavailableError):
+            first.result(timeout=2)
+        with pytest.raises(ApiUnavailableError):
+            second.result(timeout=2)
+
+    assert (raw.trip_calls, raw.vehicle_calls) == (1, 0)
+
+    now[0] += 5
+    with pytest.raises(ApiUnavailableError):
+        cached.fetch_trip_updates("GG")
+
+    assert raw.trip_calls == 2

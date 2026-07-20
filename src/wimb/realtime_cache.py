@@ -13,6 +13,7 @@ from google.transit import gtfs_realtime_pb2  # type: ignore[import-untyped]
 from .client import TransitDataClient
 
 REALTIME_CACHE_TTL_SECONDS = 60.0
+REALTIME_FAILURE_CACHE_TTL_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,14 @@ class _RealtimeEntry:
     operator_id: str
     trip_updates: gtfs_realtime_pb2.FeedMessage
     vehicle_positions: gtfs_realtime_pb2.FeedMessage
+    stored_at: float
+
+
+@dataclass(frozen=True)
+class _RealtimeFailure:
+    operator_id: str
+    error_type: type[Exception]
+    error_args: tuple[object, ...]
     stored_at: float
 
 
@@ -35,15 +44,18 @@ class CachedTransitClient:
         self,
         client: TransitDataClient,
         ttl_seconds: float = REALTIME_CACHE_TTL_SECONDS,
+        failure_ttl_seconds: float = REALTIME_FAILURE_CACHE_TTL_SECONDS,
         monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        if ttl_seconds <= 0:
-            raise ValueError("Realtime cache TTL must be positive.")
+        if ttl_seconds <= 0 or failure_ttl_seconds <= 0:
+            raise ValueError("Realtime cache TTLs must be positive.")
         self._client = client
         self._ttl_seconds = ttl_seconds
+        self._failure_ttl_seconds = failure_ttl_seconds
         self._clock = monotonic_clock
         self._condition = Condition()
         self._entry: _RealtimeEntry | None = None
+        self._failure: _RealtimeFailure | None = None
         self._refreshing = False
 
     def fetch_operators(self) -> list[dict[str, Any]]:
@@ -68,6 +80,12 @@ class CachedTransitClient:
                     and now - self._entry.stored_at < self._ttl_seconds
                 ):
                     return self._entry
+                if (
+                    self._failure is not None
+                    and self._failure.operator_id == operator_id
+                    and now - self._failure.stored_at < self._failure_ttl_seconds
+                ):
+                    raise self._failure.error_type(*self._failure.error_args)
                 if not self._refreshing:
                     self._refreshing = True
                     break
@@ -76,6 +94,17 @@ class CachedTransitClient:
         try:
             trip_feed = self._client.fetch_trip_updates(operator_id)
             vehicle_feed = self._client.fetch_vehicle_positions(operator_id)
+        except Exception as error:
+            with self._condition:
+                self._failure = _RealtimeFailure(
+                    operator_id,
+                    type(error),
+                    error.args,
+                    self._clock(),
+                )
+                self._refreshing = False
+                self._condition.notify_all()
+            raise
         except BaseException:
             with self._condition:
                 self._refreshing = False
@@ -89,6 +118,7 @@ class CachedTransitClient:
                 vehicle_feed,
                 self._clock(),
             )
+            self._failure = None
             self._refreshing = False
             self._condition.notify_all()
             return self._entry

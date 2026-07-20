@@ -113,6 +113,7 @@ class WimbService:
                 request_time,
                 True,
                 DataStatus.NO_SERVICE,
+                False,
             )
         trip_feed = self._client.fetch_trip_updates(operator_id)
         vehicle_feed = self._client.fetch_vehicle_positions(operator_id)
@@ -137,7 +138,9 @@ class WimbService:
             prior_progress,
         )
         progress_store.update(buses, current_time)
-        if any(bus.tracking_status is TrackingStatus.TRACKED for bus in buses):
+        if not buses and no_additional_buses:
+            data_status = DataStatus.NO_SERVICE
+        elif any(bus.tracking_status is TrackingStatus.TRACKED for bus in buses):
             data_status = DataStatus.LIVE
         elif not positions:
             data_status = DataStatus.NO_LIVE_VEHICLES

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,7 +29,7 @@ from ..errors import (
     StaleFeedError,
     WimbError,
 )
-from ..models import BusFact, DataStatus, RouteSnapshot, Stop, TrackingStatus
+from ..models import BusFact, RouteSnapshot, Stop, TrackingStatus
 from ..realtime_cache import CachedTransitClient
 from ..service import PACIFIC, ROUTE_ID, WimbService
 from .schemas import (
@@ -51,6 +52,18 @@ LOGGER = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 ROUTE_NAME_FALLBACK = "Novato – San Francisco"
 STATUS_BUS_COUNT = 2
+
+RESOURCE_ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
+    404: {"model": ErrorResponse, "description": "Invalid route, direction, or stop."},
+    422: {"model": ErrorResponse, "description": "Invalid request parameters."},
+    500: {"model": ErrorResponse, "description": "Unexpected internal failure."},
+    502: {"model": ErrorResponse, "description": "511 request failure."},
+    503: {"model": ErrorResponse, "description": "Server or realtime data unavailable."},
+}
+STATUS_ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
+    **RESOURCE_ERROR_RESPONSES,
+    409: {"model": ErrorResponse, "description": "Realtime evidence is unavailable."},
+}
 
 
 class WebService(Protocol):
@@ -77,10 +90,13 @@ class InvalidRouteError(WimbError):
 
 def build_runtime(config_path: Path = Path("wimb.toml")) -> WebRuntime:
     """Build the web service without making a 511 request."""
-    load_dotenv(Path(".env"))
     try:
+        load_dotenv(Path(".env"))
         settings = load_settings(config_path, None, None, None)
         settings.cache_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=settings.cache_dir) as probe:
+            probe.write(b"wimb-readiness")
+            probe.flush()
     except (ConfigurationError, OSError) as error:
         return WebRuntime(None, _safe_configuration_message(error))
     client = CachedTransitClient(TransitClient(settings.api_key))
@@ -145,6 +161,7 @@ def create_app(
     @app.get(
         "/api/v1/routes/{route_id}/directions",
         response_model=DirectionsResponse,
+        responses=RESOURCE_ERROR_RESPONSES,
         tags=["Route 154"],
     )
     def directions(route_id: str, request: Request) -> DirectionsResponse:
@@ -161,6 +178,7 @@ def create_app(
     @app.get(
         "/api/v1/routes/{route_id}/stops",
         response_model=StopsResponse,
+        responses=RESOURCE_ERROR_RESPONSES,
         tags=["Route 154"],
     )
     def stops(
@@ -185,6 +203,7 @@ def create_app(
     @app.get(
         "/api/v1/routes/{route_id}/status",
         response_model=StatusResponse,
+        responses=STATUS_ERROR_RESPONSES,
         tags=["Route 154"],
     )
     def status(
@@ -218,11 +237,7 @@ def _status_response(
         buses=[_bus_status(bus, snapshot.fetched_at) for bus in snapshot.buses],
         no_additional_buses=snapshot.no_additional_buses,
         data_status=snapshot.data_status.value,
-        feed_status=(
-            FeedStatus.NOT_REQUESTED
-            if snapshot.data_status is DataStatus.NO_SERVICE
-            else FeedStatus.FRESH
-        ),
+        feed_status=(FeedStatus.FRESH if snapshot.realtime_checked else FeedStatus.NOT_REQUESTED),
         generated_at=snapshot.fetched_at,
     )
 

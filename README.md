@@ -72,7 +72,9 @@ errors have distinct status codes and stable error codes.
 The web runtime caches TripUpdates and VehiclePositions together in memory for 60
 seconds. Requests inside that window reuse the same pair of feeds, and concurrent
 requests share one refresh instead of issuing simultaneous 511 calls. Static GTFS
-continues to use the persistent `.wimb/` filesystem cache.
+continues to use the persistent `.wimb/` filesystem cache. A failed realtime
+refresh is shared for a short five-second cooldown so an outage cannot cause queued
+requests to retry 511 in a burst.
 
 The in-memory realtime cache is intentionally designed for one Uvicorn worker. A
 future multi-worker deployment will require a shared cache, but Redis and multiple

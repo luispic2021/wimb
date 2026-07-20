@@ -132,6 +132,7 @@ class RouteSnapshot:
     fetched_at: datetime
     no_additional_buses: bool = False
     data_status: DataStatus = DataStatus.LIVE
+    realtime_checked: bool = True
 
 
 @dataclass(frozen=True)
