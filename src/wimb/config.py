@@ -20,13 +20,30 @@ class Settings:
     stale_after_seconds: int = 180
 
 
+def load_dotenv(path: Path) -> None:
+    """Load simple KEY=VALUE local config without adding a runtime dependency."""
+    if not path.exists():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ConfigurationError(f"Could not read configuration file {path}.") from error
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if separator and key and not key.lstrip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
 def load_settings(
     config_path: Path, stop_id: str | None, direction_id: int | None, bus_count: int | None
 ) -> Settings:
     values: dict[str, object] = {}
     if config_path.exists():
-        with config_path.open("rb") as config_file:
-            values = tomllib.load(config_file)
+        try:
+            with config_path.open("rb") as config_file:
+                values = tomllib.load(config_file)
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            raise ConfigurationError(f"Could not read configuration file {config_path}.") from error
     api_key = os.environ.get("WIMB_API_KEY", "").strip()
     if not api_key:
         raise ConfigurationError(

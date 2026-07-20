@@ -1,4 +1,4 @@
-.PHONY: install test lint run
+.PHONY: install test lint run web
 
 install:
 	python3 -m venv .venv
@@ -14,3 +14,6 @@ lint:
 
 run:
 	.venv/bin/wimb
+
+web:
+	.venv/bin/uvicorn wimb.web.app:app --reload --host 127.0.0.1 --port 8000

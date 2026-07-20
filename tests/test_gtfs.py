@@ -74,3 +74,14 @@ def test_after_midnight_time_keeps_previous_service_date_and_run_number(
 
 def test_uses_previous_stop_for_in_transit_vehicle(gtfs_store: GtfsStore) -> None:
     assert gtfs_store.previous_stop("sb-3", 3) == gtfs_store.stops["B"]
+
+
+def test_discovers_direction_labels_and_stops_in_timetable_order(
+    gtfs_store: GtfsStore,
+) -> None:
+    assert gtfs_store.route_directions("154") == [
+        (0, "Southbound to San Francisco"),
+        (1, "Northbound to Novato"),
+    ]
+    assert [stop.stop_id for stop in gtfs_store.route_stops("154", 0)] == ["A", "B", "C"]
+    assert [stop.stop_id for stop in gtfs_store.route_stops("154", 1)] == ["C", "B", "A"]

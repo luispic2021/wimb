@@ -20,6 +20,13 @@ class TrackingStatus(Enum):
     UNAVAILABLE = "unavailable"
 
 
+class DataStatus(Enum):
+    LIVE = "live"
+    NO_SERVICE = "no_service"
+    NO_LIVE_VEHICLES = "no_live_vehicles"
+    NO_USABLE_REALTIME_DATA = "no_usable_realtime_data"
+
+
 @dataclass(frozen=True)
 class Stop:
     stop_id: str
@@ -124,6 +131,8 @@ class RouteSnapshot:
     buses: tuple[BusFact, ...]
     fetched_at: datetime
     no_additional_buses: bool = False
+    data_status: DataStatus = DataStatus.LIVE
+    realtime_checked: bool = True
 
 
 @dataclass(frozen=True)

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import time
 from pathlib import Path
 
 from . import __version__
 from .client import TransitClient
-from .config import load_settings
+from .config import load_dotenv, load_settings
 from .errors import WimbError
 from .presentation import clear_screen, render_snapshot, render_stops
 from .service import WimbService
@@ -44,7 +43,7 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     try:
-        _load_dotenv(Path(".env"))
+        load_dotenv(Path(".env"))
         settings = load_settings(args.config, args.stop, args.direction, args.count)
         service = WimbService(
             TransitClient(settings.api_key), settings.cache_dir, settings.stale_after_seconds
@@ -67,16 +66,6 @@ def main() -> int:
     except WimbError as error:
         print(f"WIMB: {error}")
         return 2
-
-
-def _load_dotenv(path: Path) -> None:
-    """Load simple KEY=VALUE local config without adding a runtime dependency."""
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        key, separator, value = line.partition("=")
-        if separator and key and not key.lstrip().startswith("#"):
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 if __name__ == "__main__":

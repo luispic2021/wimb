@@ -13,7 +13,7 @@ from datetime import date, datetime, time, timedelta
 from io import TextIOWrapper
 from pathlib import Path
 
-from .client import TransitClient
+from .client import TransitDataClient
 from .models import ScheduledRun, ScheduledStopTime, ScheduledTrip, Stop
 
 CACHE_TTL = timedelta(days=7)
@@ -36,7 +36,7 @@ class GtfsStore:
 
     @classmethod
     def cached(
-        cls, client: TransitClient, cache_dir: Path, operator_id: str, now: datetime
+        cls, client: TransitDataClient, cache_dir: Path, operator_id: str, now: datetime
     ) -> GtfsStore:
         cache_dir.mkdir(parents=True, exist_ok=True)
         archive_path = cache_dir / f"{operator_id.lower()}-gtfs.zip"
@@ -248,6 +248,35 @@ class GtfsStore:
         if net_change > 0:
             return f"Northbound to {destination}"
         return f"To {destination}"
+
+    def route_directions(self, route_id: str) -> list[tuple[int, str]]:
+        direction_ids = sorted(
+            {
+                trip.direction_id
+                for trip in self.trips.values()
+                if trip.route_id == route_id and trip.direction_id is not None
+            }
+        )
+        return [
+            (direction_id, self.direction_label(route_id, direction_id))
+            for direction_id in direction_ids
+        ]
+
+    def route_stops(self, route_id: str, direction_id: int) -> list[Stop]:
+        """Return unique stops in their earliest published sequence order."""
+        earliest_sequences: dict[str, int] = {}
+        for trip_id, trip in self.trips.items():
+            if trip.route_id != route_id or trip.direction_id != direction_id:
+                continue
+            for stop_time in self.stop_times.get(trip_id, []):
+                current = earliest_sequences.get(stop_time.stop_id)
+                earliest_sequences[stop_time.stop_id] = (
+                    stop_time.stop_sequence
+                    if current is None
+                    else min(current, stop_time.stop_sequence)
+                )
+        ordered_ids = sorted(earliest_sequences, key=lambda item: (earliest_sequences[item], item))
+        return [self.stops[stop_id] for stop_id in ordered_ids if stop_id in self.stops]
 
     def stop_sequence(self, trip_id: str, stop_id: str) -> int | None:
         for item in self.stop_times.get(trip_id, []):
