@@ -217,9 +217,14 @@ sudo install -d -m 0750 -o "$(id -un)" -g "$(id -gn)" /var/log/wimb
 Then add these AM entries with `crontab -e`:
 
 ```cron
-35,45 5 * * 1-5 cd /opt/wimb && /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute am >> /var/log/wimb/route-154-40581-cron.log 2>&1
-0,10,20,30,40,50 6-7 * * 1-5 cd /opt/wimb && /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute am >> /var/log/wimb/route-154-40581-cron.log 2>&1
-0,10,20,30 8 * * 1-5 cd /opt/wimb && /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute am >> /var/log/wimb/route-154-40581-cron.log 2>&1
+# --- Morning commute: stop 40581 southbound, every 5 min weekdays 5:35–9:00 ---
+35-55/5 5 * * 1-5 cd /opt/wimb && flock -n /var/lock/wimb-154-am.lock /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute am >> /var/log/wimb/route-154-am-cron.log 2>&1
+*/5     6-8 * * 1-5 cd /opt/wimb && flock -n /var/lock/wimb-154-am.lock /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute am >> /var/log/wimb/route-154-am-cron.log 2>&1
+0       9 * * 1-5 cd /opt/wimb && flock -n /var/lock/wimb-154-am.lock /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute am >> /var/log/wimb/route-154-am-cron.log 2>&1
+
+# --- Afternoon commute: stop 40057 northbound, every 5 min weekdays 15:00–17:50 ---
+*/5    15-16 * * 1-5 cd /opt/wimb && flock -n /var/lock/wimb-154-pm.lock /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute pm >> /var/log/wimb/route-154-pm-cron.log 2>&1
+0-50/5 17 * * 1-5 cd /opt/wimb && flock -n /var/lock/wimb-154-pm.lock /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute pm >> /var/log/wimb/route-154-pm-cron.log 2>&1
 ```
 
 The separate `route-154-40581-cron.log` receives only unexpected collector-level
