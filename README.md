@@ -117,3 +117,82 @@ make lint
 
 Tests use local GTFS text fixtures and in-memory protobuf fixtures; no tests call
 the network.
+
+## Route 154 audit collector
+
+[`scripts/audit_route_154.py`](scripts/audit_route_154.py) is a cron-oriented audit
+utility for the southbound commuter experience at North San Pedro Road Bus Pad. It
+invokes the installed WIMB CLI once and captures exactly what the CLI returned; it
+does not duplicate or parse WIMB's timetable, run-numbering, eligibility, deviation,
+or rendering logic. These are validation records, not application operational logs.
+
+The defaults are Route 154, southbound `direction_id=1`, stop `40581`, and two
+buses. Run it from the installed repository environment so `.venv/bin/wimb` and
+the repository `.env` are available:
+
+```sh
+cd /opt/wimb
+/opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py
+```
+
+The default outputs are:
+
+- `/var/log/wimb/route-154-40581-audit.log` — human-readable execution entries
+- `/var/log/wimb/route-154-40581-audit.jsonl` — one JSON object per execution
+- `/var/log/wimb/route-154-40581-audit.lock` — nonblocking overlap lock
+
+Use temporary paths for development or override the audited stop, direction,
+labels, bus count, or timeout:
+
+```sh
+.venv/bin/python scripts/audit_route_154.py --log-dir /tmp/wimb-audit
+.venv/bin/python scripts/audit_route_154.py \
+  --stop 40581 --stop-name "North San Pedro Road Bus Pad" \
+  --direction 1 --direction-label Southbound --count 2 \
+  --log-dir /tmp/wimb-audit --timeout 150
+```
+
+The 150-second default timeout accounts for the 511 client's 30-second request
+timeout and a cold snapshot's possible sequential operator, static GTFS,
+TripUpdates, and VehiclePositions requests. A second collector exits successfully
+with a skip message if the nonblocking lock is held; it never waits for the first.
+
+After successfully appending both logs, the collector returns WIMB's exit code.
+Timeout returns `124`; collector failures such as log permission or execution
+errors return `70`. A lock-contention skip returns `0`. WIMB errors, no-service
+responses, stale feeds, and empty output are still recorded. Known secret values
+from the process environment and `/opt/wimb/.env` are redacted before writing.
+
+Inspect recent records with:
+
+```sh
+tail -n 80 /var/log/wimb/route-154-40581-audit.log
+tail -n 1 /var/log/wimb/route-154-40581-audit.jsonl | \
+  /opt/wimb/.venv/bin/python -m json.tool
+```
+
+### Droplet installation and cron
+
+From the account that will own the cron entry and can read `/opt/wimb/.env`:
+
+```sh
+cd /opt/wimb
+git pull --ff-only
+/opt/wimb/.venv/bin/python -m pip install -e /opt/wimb
+sudo install -d -m 0750 -o "$(id -un)" -g "$(id -gn)" /var/log/wimb
+/opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py
+```
+
+Then add these entries with `crontab -e`:
+
+```cron
+35,45 5 * * 1-5 cd /opt/wimb && /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py >> /var/log/wimb/route-154-40581-cron.log 2>&1
+0,10,20,30,40,50 6-7 * * 1-5 cd /opt/wimb && /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py >> /var/log/wimb/route-154-40581-cron.log 2>&1
+0,10,20,30 8 * * 1-5 cd /opt/wimb && /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py >> /var/log/wimb/route-154-40581-cron.log 2>&1
+```
+
+The separate `route-154-40581-cron.log` receives only unexpected collector-level
+messages such as lock skips and permission failures. Normal WIMB stdout and stderr
+are stored in the audit files. Verify the Droplet timezone with `timedatectl`; the
+collector timestamps records explicitly with `America/Los_Angeles` regardless of
+the cron daemon's timezone configuration.

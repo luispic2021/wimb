@@ -26,6 +26,8 @@ This is a modular Python monolith and terminal application:
 - `src/wimb/service.py`: Route 154 application orchestration and feed freshness.
 - `src/wimb/presentation.py`: terminal rendering only.
 - `src/wimb/config.py` and `cli.py`: local configuration and CLI wiring.
+- `scripts/audit_route_154.py`: cron-invoked Route 154 CLI audit capture; it records
+  validation evidence and is not application operational logging.
 - `tests/fixtures`: offline GTFS text fixtures; protobuf fixtures are built in memory.
 
 Keep domain and presentation logic separate. Prefer focused additions over broad
@@ -76,8 +78,13 @@ commit, log, or embed it in URLs shown to users. Cached public GTFS data belongs
 `.wimb/`. Live validation must be read-only and one-shot unless the API quota is
 known to support polling.
 
+The audit collector writes text and JSONL records under `/var/log/wimb` by default.
+It must invoke the existing CLI rather than duplicate domain logic, and neither
+audit stream may contain secrets from the environment or `.env`.
+
 Keep tests deterministic and offline. Add local GTFS fixtures or in-memory
-protobufs for schedule/realtime cases. Run pytest, Ruff, and strict mypy before
+protobufs for schedule/realtime cases. Run `make test` for the full offline suite,
+then `make lint` for Ruff and strict mypy before
 committing. Preserve explicit user-facing failures when live data is absent,
 stale, or insufficient.
 

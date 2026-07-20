@@ -19,3 +19,6 @@ output/
 # Editor and operating-system files
 .DS_Store
 .vscode/
+
+# Ignore wimb.toml
+wimb.toml
