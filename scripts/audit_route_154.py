@@ -28,11 +28,24 @@ DEFAULT_BUS_COUNT = 2
 DEFAULT_LOG_DIR = Path("/var/log/wimb")
 # TransitClient permits 30 seconds per request. A cold snapshot can make four
 # sequential requests, so 150 seconds leaves modest overhead without approaching
-# the collector's shortest 10-minute cron interval.
+# the collector's shortest 5-minute cron interval.
 DEFAULT_TIMEOUT_SECONDS = 150.0
 COLLECTOR_FAILURE_EXIT = 70
 TIMEOUT_EXIT = 124
 SECRET_NAME_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
+
+
+@dataclass(frozen=True)
+class CommutePreset:
+    stop_id: str
+    direction_id: int
+    direction_label: str
+
+
+COMMUTE_PRESETS: Mapping[str, CommutePreset] = {
+    "am": CommutePreset("40581", 1, "Southbound"),
+    "pm": CommutePreset("40057", 0, "Northbound"),
+}
 
 
 @dataclass(frozen=True)
@@ -229,9 +242,12 @@ def get_wimb_version() -> str | None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Record one Route 154 WIMB CLI audit snapshot.")
-    parser.add_argument("--stop", default=DEFAULT_STOP_ID, help="GTFS stop ID")
+    parser.add_argument(
+        "--commute", choices=tuple(COMMUTE_PRESETS), help="Named commute audit preset"
+    )
+    parser.add_argument("--stop", help="GTFS stop ID")
     parser.add_argument("--stop-name", help="Human-readable stop name for audit metadata")
-    parser.add_argument("--direction", type=_nonnegative_int, default=DEFAULT_DIRECTION_ID)
+    parser.add_argument("--direction", type=_nonnegative_int)
     parser.add_argument("--direction-label", help="Human-readable direction for audit metadata")
     parser.add_argument("--count", type=_positive_int, default=DEFAULT_BUS_COUNT)
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR)
@@ -240,19 +256,40 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> AuditConfig:
+    preset = COMMUTE_PRESETS.get(args.commute) if args.commute else None
+    stop_id = args.stop if args.stop is not None else preset.stop_id if preset else DEFAULT_STOP_ID
+    direction_id = (
+        args.direction
+        if args.direction is not None
+        else preset.direction_id
+        if preset
+        else DEFAULT_DIRECTION_ID
+    )
     stop_name = args.stop_name or (
-        DEFAULT_STOP_NAME if args.stop == DEFAULT_STOP_ID else f"Stop {args.stop}"
+        DEFAULT_STOP_NAME if stop_id == DEFAULT_STOP_ID else f"Stop {stop_id}"
     )
-    direction_label = args.direction_label or (
-        DEFAULT_DIRECTION_LABEL
-        if args.direction == DEFAULT_DIRECTION_ID
-        else f"Direction {args.direction}"
-    )
+    if args.direction_label:
+        direction_label = args.direction_label
+    elif preset and args.direction is None:
+        direction_label = preset.direction_label
+    elif direction_id == DEFAULT_DIRECTION_ID:
+        direction_label = DEFAULT_DIRECTION_LABEL
+    elif preset:
+        direction_label = next(
+            (
+                candidate.direction_label
+                for candidate in COMMUTE_PRESETS.values()
+                if candidate.direction_id == direction_id
+            ),
+            f"Direction {direction_id}",
+        )
+    else:
+        direction_label = f"Direction {direction_id}"
     return AuditConfig(
         repository_root=repository_root(),
-        stop_id=args.stop,
+        stop_id=stop_id,
         stop_name=stop_name,
-        direction_id=args.direction,
+        direction_id=direction_id,
         direction_label=direction_label,
         requested_bus_count=args.count,
         log_dir=args.log_dir,

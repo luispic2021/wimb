@@ -79,6 +79,40 @@ def test_stopped_at_selected_stop_uses_current_stop_evidence(gtfs_store: GtfsSto
     assert facts[0].as_of_stop == gtfs_store.stops["B"]
 
 
+def test_stopped_at_with_conflicting_update_stop_is_withheld(gtfs_store: GtfsStore) -> None:
+    now = datetime(2026, 7, 13, 7, 12, tzinfo=UTC)
+    run = _run(gtfs_store, "sb-3", now)
+    position = VehiclePosition("sb-3", "1204", "B", 2, StopStatus.STOPPED_AT, now)
+    conflicting_update = TripUpdate(
+        "sb-3",
+        "154",
+        "1204",
+        (RealtimeStopUpdate("A", 2, None, 45),),
+    )
+
+    facts = build_bus_facts(gtfs_store, [run], [conflicting_update], [position], now)
+
+    assert facts == []
+
+
+def test_stopped_at_with_conflicting_update_sequence_is_withheld(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 12, tzinfo=UTC)
+    run = _run(gtfs_store, "sb-3", now)
+    position = VehiclePosition("sb-3", "1204", "B", 2, StopStatus.STOPPED_AT, now)
+    conflicting_update = TripUpdate(
+        "sb-3",
+        "154",
+        "1204",
+        (RealtimeStopUpdate("B", 1, None, 45),),
+    )
+
+    facts = build_bus_facts(gtfs_store, [run], [conflicting_update], [position], now)
+
+    assert facts == []
+
+
 def test_future_prediction_is_not_presented_as_historical_evidence(
     gtfs_store: GtfsStore,
 ) -> None:
@@ -89,6 +123,30 @@ def test_future_prediction_is_not_presented_as_historical_evidence(
     facts = build_bus_facts(gtfs_store, [run], [_update("sb-4", "B", 2, -180)], [position], now)
 
     assert facts == []
+
+
+def test_evidence_stop_matches_older_available_update_when_intermediate_is_missing(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 20, tzinfo=UTC)
+    run = next(
+        run
+        for run in gtfs_store.scheduled_runs_at_stop("154", "C", 0, now)
+        if run.stop_time.trip_id == "sb-3" and run.service_date == date(2026, 7, 13)
+    )
+    position = VehiclePosition("sb-3", "1204", "C", 3, StopStatus.IN_TRANSIT_TO, now)
+
+    facts = build_bus_facts(
+        gtfs_store,
+        [run],
+        [_update("sb-3", "A", 1, 120)],
+        [position],
+        now,
+    )
+
+    assert facts[0].as_of_stop == gtfs_store.stops["A"]
+    assert facts[0].as_of_stop_sequence == 1
+    assert facts[0].deviation_seconds == 120
 
 
 def test_missing_or_incomplete_realtime_evidence_is_withheld(gtfs_store: GtfsStore) -> None:
@@ -162,7 +220,21 @@ def test_listing_marks_started_approaching_run_without_evidence_unavailable(
     assert buses[0].tracking_status is TrackingStatus.UNAVAILABLE
 
 
-def test_listing_reports_exhausted_after_last_bus_for_calendar_day(
+def test_listing_marks_preassigned_vehicle_as_not_departed_before_scheduled_start(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 20, tzinfo=UTC)
+    runs = gtfs_store.scheduled_runs_at_stop("154", "B", 0, now)
+    position = VehiclePosition("sb-4", "1204", None, None, StopStatus.UNKNOWN, now)
+
+    buses, _exhausted = build_bus_listing(gtfs_store, runs, [], [position], now, count=1)
+
+    assert buses[0].run_number == 4
+    assert buses[0].tracking_status is TrackingStatus.NOT_DEPARTED
+    assert buses[0].vehicle_id is None
+
+
+def test_listing_includes_after_midnight_run_before_service_date_ends(
     gtfs_store: GtfsStore,
 ) -> None:
     now = datetime(2026, 7, 13, 23, 0, tzinfo=UTC)
@@ -170,8 +242,41 @@ def test_listing_reports_exhausted_after_last_bus_for_calendar_day(
 
     buses, exhausted = build_bus_listing(gtfs_store, runs, [], [], now, count=2)
 
-    assert buses == []
+    assert len(buses) == 1
+    assert buses[0].run_number == 7
+    assert buses[0].scheduled_departure == datetime(2026, 7, 14, 1, 12, tzinfo=UTC)
+    assert buses[0].tracking_status is TrackingStatus.NOT_DEPARTED
     assert exhausted
+
+
+def test_listing_keeps_cached_upstream_run_when_vehicle_position_disappears(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 20, tzinfo=UTC)
+    runs = gtfs_store.scheduled_runs_at_stop("154", "B", 0, now)
+    run = _run(gtfs_store, "sb-3", now)
+    prior = ProgressEvidence(
+        trip_id="sb-3",
+        service_date=run.service_date,
+        stop_sequence=1,
+        stop=gtfs_store.stops["A"],
+        delay_seconds=480,
+        observed_at=now - timedelta(minutes=1),
+    )
+
+    buses, _exhausted = build_bus_listing(
+        gtfs_store,
+        runs,
+        [],
+        [],
+        now,
+        count=1,
+        prior_progress={(run.service_date, "sb-3"): prior},
+    )
+
+    assert buses[0].run_number == 3
+    assert buses[0].tracking_status is TrackingStatus.UNAVAILABLE
+    assert buses[0].vehicle_id is None
 
 
 def test_checkpoint_evidence_prevents_as_of_stop_regression(gtfs_store: GtfsStore) -> None:

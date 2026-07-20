@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -22,13 +23,20 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
 class WimbService:
-    def __init__(self, client: TransitClient, cache_dir: Path, stale_after_seconds: int) -> None:
+    def __init__(
+        self,
+        client: TransitClient,
+        cache_dir: Path,
+        stale_after_seconds: int,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._client = client
         self._cache_dir = cache_dir
         self._stale_after_seconds = stale_after_seconds
+        self._clock = clock or (lambda: datetime.now(PACIFIC))
 
     def list_stops(self) -> list[tuple[str, str]]:
-        now = datetime.now(PACIFIC)
+        now = self._clock()
         operator_id = self._operator_id(now)
         gtfs = GtfsStore.cached(self._client, self._cache_dir, operator_id, now)
         stop_ids = {
@@ -44,17 +52,18 @@ class WimbService:
     def snapshot(
         self, stop_id: str, direction_id: int | None, count: int, now: datetime | None = None
     ) -> RouteSnapshot:
-        current_time = now or datetime.now(PACIFIC)
-        operator_id = self._operator_id(current_time)
-        gtfs = GtfsStore.cached(self._client, self._cache_dir, operator_id, current_time)
+        request_time = now or self._clock()
+        operator_id = self._operator_id(request_time)
+        gtfs = GtfsStore.cached(self._client, self._cache_dir, operator_id, request_time)
         selected_stop = gtfs.stops.get(stop_id)
         if selected_stop is None:
             raise ApiError(
                 f"Stop {stop_id!r} is not in Golden Gate Transit GTFS. Run --list-stops."
             )
-        scheduled_runs = gtfs.scheduled_runs_at_stop(ROUTE_ID, stop_id, direction_id, current_time)
         trip_feed = self._client.fetch_trip_updates(operator_id)
         vehicle_feed = self._client.fetch_vehicle_positions(operator_id)
+        current_time = now or self._clock()
+        scheduled_runs = gtfs.scheduled_runs_at_stop(ROUTE_ID, stop_id, direction_id, current_time)
         self._assert_fresh(trip_feed, "TripUpdates", current_time)
         self._assert_fresh(vehicle_feed, "VehiclePositions", current_time)
         updates = [item for item in trip_updates(trip_feed) if item.route_id in (ROUTE_ID, None)]

@@ -273,3 +273,67 @@ def test_cli_argument_overrides() -> None:
     assert config.log_dir == Path("/tmp/custom-wimb-audit")
     assert config.timeout_seconds == 45
     assert config.log_stem == "route-154-99999-audit"
+
+
+def test_am_commute_preset_uses_existing_defaults() -> None:
+    config = audit.config_from_args(audit.build_parser().parse_args(["--commute", "am"]))
+
+    assert config.stop_id == "40581"
+    assert config.stop_name == "North San Pedro Road Bus Pad"
+    assert config.direction_id == 1
+    assert config.direction_label == "Southbound"
+
+
+def test_pm_commute_preset_uses_northbound_stop_and_direction() -> None:
+    config = audit.config_from_args(audit.build_parser().parse_args(["--commute", "pm"]))
+
+    assert config.stop_id == "40057"
+    assert config.stop_name == "Stop 40057"
+    assert config.direction_id == 0
+    assert config.direction_label == "Northbound"
+
+
+def test_explicit_core_arguments_override_commute_preset() -> None:
+    args = audit.build_parser().parse_args(
+        [
+            "--commute",
+            "pm",
+            "--stop",
+            "99999",
+            "--direction",
+            "1",
+            "--direction-label",
+            "Custom Direction",
+        ]
+    )
+
+    config = audit.config_from_args(args)
+
+    assert config.stop_id == "99999"
+    assert config.stop_name == "Stop 99999"
+    assert config.direction_id == 1
+    assert config.direction_label == "Custom Direction"
+
+
+@pytest.mark.parametrize(
+    ("commute", "direction", "expected_label"),
+    (("pm", "1", "Southbound"), ("am", "0", "Northbound")),
+)
+def test_direction_override_keeps_preset_metadata_consistent(
+    commute: str, direction: str, expected_label: str
+) -> None:
+    args = audit.build_parser().parse_args(["--commute", commute, "--direction", direction])
+
+    config = audit.config_from_args(args)
+
+    assert config.direction_id == int(direction)
+    assert config.direction_label == expected_label
+
+
+def test_omitted_commute_keeps_current_defaults() -> None:
+    config = audit.config_from_args(audit.build_parser().parse_args([]))
+
+    assert config.stop_id == audit.DEFAULT_STOP_ID
+    assert config.stop_name == audit.DEFAULT_STOP_NAME
+    assert config.direction_id == audit.DEFAULT_DIRECTION_ID
+    assert config.direction_label == audit.DEFAULT_DIRECTION_LABEL
