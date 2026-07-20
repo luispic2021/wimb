@@ -214,7 +214,7 @@ sudo install -d -m 0750 -o "$(id -un)" -g "$(id -gn)" /var/log/wimb
 /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute am
 ```
 
-Then add these AM entries with `crontab -e`:
+Then add these entries with `crontab -e`:
 
 ```cron
 # --- Morning commute: stop 40581 southbound, every 5 min weekdays 5:35–9:00 ---
@@ -227,8 +227,8 @@ Then add these AM entries with `crontab -e`:
 0-50/5 17 * * 1-5 cd /opt/wimb && flock -n /var/lock/wimb-154-pm.lock /opt/wimb/.venv/bin/python /opt/wimb/scripts/audit_route_154.py --commute pm >> /var/log/wimb/route-154-pm-cron.log 2>&1
 ```
 
-The separate `route-154-40581-cron.log` receives only unexpected collector-level
-messages such as lock skips and permission failures. Normal WIMB stdout and stderr
-are stored in the audit files. Verify the Droplet timezone with `timedatectl`; the
-collector timestamps records explicitly with `America/Los_Angeles` regardless of
-the cron daemon's timezone configuration.
+The separate `route-154-am-cron.log` and `route-154-pm-cron.log` files receive only
+unexpected collector-level messages such as lock skips and permission failures.
+Normal WIMB stdout and stderr are stored in the audit files. Verify the Droplet
+timezone with `timedatectl`; the collector timestamps records explicitly with
+`America/Los_Angeles` regardless of the cron daemon's timezone configuration.
