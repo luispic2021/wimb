@@ -50,8 +50,10 @@ def test_human_readable_rendering_uses_arrival_estimate_evidence_and_freshness()
     assert "Direction: Southbound to San Francisco" in rendered
     assert "Stop: Manzanita Park & Ride" in rendered
     assert "Bus 6 of 7 · scheduled 3:12 PM · Vehicle 1204" in rendered
+    assert "ETA: 3:07 PM" in rendered
     assert "Arrives in: 7 minutes and 00 seconds" in rendered
-    assert "as of Lucas Valley Road · updated 24 sec ago" in rendered
+    assert "5 minutes and 00 seconds ahead as of Lucas Valley Road" in rendered
+    assert "updated 24 sec ago" in rendered
 
 
 def test_arrival_countdown_keeps_second_granularity_without_rounding() -> None:

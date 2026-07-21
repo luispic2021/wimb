@@ -59,7 +59,7 @@ class _Service:
             direction_label="Southbound to San Francisco Financial District",
             vehicle_id="964",
             scheduled_departure=NOW + timedelta(minutes=10),
-            deviation_seconds=120,
+            deviation_seconds=330,
             as_of_stop=Stop("40200", "Terra Linda Bus Pad"),
             as_of_stop_sequence=12,
             observed_at=NOW - timedelta(seconds=14),
@@ -242,9 +242,10 @@ def test_successful_status_has_explicit_schema_and_aware_timestamps(client: Test
         "run_number": 6,
         "run_total": 7,
         "scheduled_time": (NOW + timedelta(minutes=10)).isoformat(),
+        "estimated_arrival": (NOW + timedelta(minutes=15, seconds=30)).isoformat(),
         "tracking_status": "tracked",
-        "deviation_seconds": 120,
-        "deviation_label": "2 minutes behind",
+        "deviation_seconds": 330,
+        "deviation_label": "5 minutes and 30 seconds behind",
         "evidence_stop_id": "40200",
         "evidence_stop_name": "Terra Linda Bus Pad",
         "observed_at": (NOW - timedelta(seconds=14)).isoformat(),
@@ -253,6 +254,7 @@ def test_successful_status_has_explicit_schema_and_aware_timestamps(client: Test
         "vehicle_id": "964",
     }
     assert datetime.fromisoformat(bus["scheduled_time"]).tzinfo is not None
+    assert datetime.fromisoformat(bus["estimated_arrival"]).tzinfo is not None
     assert datetime.fromisoformat(bus["observed_at"]).tzinfo is not None
 
 
@@ -367,7 +369,9 @@ def test_web_page_and_static_assets_are_available(client: TestClient) -> None:
     assert page.status_code == 200
     assert "Where Is My Bus?" in page.text
     assert 'id="direction"' in page.text
+    assert "built with &lt;3 by Luispe + Sebas" in page.text
     assert script.status_code == 200
     assert "/api/v1/routes/154/status" in script.text
+    assert "ETA:" in script.text
     assert stylesheet.status_code == 200
     assert "@media (min-width: 600px)" in stylesheet.text

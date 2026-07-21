@@ -252,6 +252,7 @@ def _bus_status(bus: BusFact, generated_at: datetime) -> BusStatus:
         run_number=bus.run_number,
         run_total=bus.run_total,
         scheduled_time=bus.scheduled_departure,
+        estimated_arrival=bus.estimated_arrival,
         tracking_status=bus.tracking_status.value,
         deviation_seconds=bus.deviation_seconds,
         deviation_label=_deviation_label(bus),
@@ -278,10 +279,8 @@ def _deviation_label(bus: BusFact) -> str:
 def _duration_label(seconds: int) -> str:
     minutes, remainder = divmod(seconds, 60)
     minute_unit = "minute" if minutes == 1 else "minutes"
-    if remainder == 0:
-        return f"{minutes} {minute_unit}"
     second_unit = "second" if remainder == 1 else "seconds"
-    return f"{minutes} {minute_unit} {remainder} {second_unit}"
+    return f"{minutes} {minute_unit} and {remainder:02d} {second_unit}"
 
 
 def _freshness_label(age_seconds: int | None) -> str:

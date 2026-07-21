@@ -9,6 +9,28 @@ scheduled time plus the deviation measured at the latest stop supported by realt
 evidence. It is always labeled `as of <stop>` and does not use an unsupported future
 StopTimeUpdate as though the bus had already reached that stop.
 
+**Live:** [wimb.luispe.me](https://wimb.luispe.me)
+
+## Built with Codex and GPT-5.6
+
+WIMB was built through a tight human-and-AI development loop using
+[OpenAI Codex](https://openai.com/codex/), powered by GPT-5.6.
+
+- **Luis** identified the commuter problem, set the product rules, made the
+  architecture decisions, and validated the experience against real Route 154 trips.
+- **Codex + GPT-5.6** helped turn those decisions into working software: tracing
+  GTFS and GTFS-Realtime behavior, reproducing live-feed failures, implementing the
+  CLI, API, web UI, progress checkpoint, and audit tooling, and keeping tests and
+  documentation aligned with each iteration.
+- **The workflow** paired offline fixtures and automated checks with read-only live
+  validation. When 511 returned missing or regressing progress, we inspected the
+  evidence, refined the behavior together, and chose explicit uncertainty over
+  fabricated precision.
+
+This was not a one-shot generated application. It was an iterative collaboration:
+observe a real commute, form a hypothesis, inspect the feed, write a test, ship the
+fix, and validate it on the deployed product.
+
 ## Setup
 
 Requires Python 3.11+ and a free [511 SF Bay Open Data API key](https://511.org/open-data/transit).
@@ -105,7 +127,8 @@ Direction: Southbound to San Francisco
 Stop: Manzanita Park & Ride
 
 Bus 6 of 7 · scheduled 7:57 AM · Vehicle 964
-Arrives in: 6 minutes and 07 seconds as of Terra Linda Bus Pad · updated 14 sec ago
+ETA: 8:02 AM · Arrives in: 6 minutes and 07 seconds
+5 minutes and 30 seconds behind as of Terra Linda Bus Pad · updated 14 sec ago
 
 Bus 7 of 7 · scheduled 8:27 AM
 Timetable only: this bus has not departed yet.
@@ -161,7 +184,10 @@ in `.wimb/route-progress.json`. The file is updated under a lock with atomic
 replacement and entries expire after two days. It stores only the latest checkpoint,
 not a vehicle-location history. Separate CLI and cron executions therefore cannot
 move a bus backward from Terra Linda to Lucas Valley; when neither the current feed
-nor the checkpoint supports progress, WIMB shows timetable-only information.
+nor the checkpoint supports progress, WIMB shows timetable-only information. A
+checkpoint with no current vehicle progress can keep a run visible only through its
+evidence-based ETA; after that, WIMB removes the run rather than showing stale or
+unavailable tracking for a bus that should have passed the selected stop.
 
 ## Data and rate limits
 

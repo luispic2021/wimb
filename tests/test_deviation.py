@@ -69,6 +69,25 @@ def test_bus_past_selected_stop_is_excluded(gtfs_store: GtfsStore) -> None:
     assert facts == []
 
 
+def test_listing_does_not_downgrade_confirmed_past_bus_to_tracking_unavailable(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 20, tzinfo=UTC)
+    runs = gtfs_store.scheduled_runs_at_stop("154", "B", 0, now)
+    position = VehiclePosition("sb-3", "1204", "C", 3, StopStatus.IN_TRANSIT_TO, now)
+
+    buses, _exhausted = build_bus_listing(
+        gtfs_store,
+        runs,
+        [_update("sb-3", "B", 2, 240)],
+        [position],
+        now,
+        count=2,
+    )
+
+    assert "sb-3" not in {bus.trip_id for bus in buses}
+
+
 def test_stopped_at_selected_stop_uses_current_stop_evidence(gtfs_store: GtfsStore) -> None:
     now = datetime(2026, 7, 13, 7, 12, tzinfo=UTC)
     run = _run(gtfs_store, "sb-3", now)
@@ -277,6 +296,79 @@ def test_listing_keeps_cached_upstream_run_when_vehicle_position_disappears(
     assert buses[0].run_number == 3
     assert buses[0].tracking_status is TrackingStatus.UNAVAILABLE
     assert buses[0].vehicle_id is None
+
+
+def test_listing_drops_cached_upstream_run_after_its_estimated_arrival(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 21, tzinfo=UTC)
+    runs = gtfs_store.scheduled_runs_at_stop("154", "B", 0, now)
+    run = _run(gtfs_store, "sb-3", now)
+    prior = ProgressEvidence(
+        trip_id="sb-3",
+        service_date=run.service_date,
+        stop_sequence=1,
+        stop=gtfs_store.stops["A"],
+        delay_seconds=480,
+        observed_at=now - timedelta(minutes=40),
+    )
+
+    buses, _exhausted = build_bus_listing(
+        gtfs_store,
+        runs,
+        [],
+        [],
+        now,
+        count=2,
+        prior_progress={(run.service_date, "sb-3"): prior},
+    )
+
+    assert "sb-3" not in {bus.trip_id for bus in buses}
+
+
+def test_stale_checkpoint_does_not_create_tracked_bus_after_eta_without_live_progress(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 21, tzinfo=UTC)
+    run = _run(gtfs_store, "sb-3", now)
+    prior = ProgressEvidence(
+        trip_id="sb-3",
+        service_date=run.service_date,
+        stop_sequence=1,
+        stop=gtfs_store.stops["A"],
+        delay_seconds=480,
+        observed_at=now - timedelta(minutes=40),
+    )
+    unknown_progress = VehiclePosition("sb-3", "1204", None, None, StopStatus.IN_TRANSIT_TO, now)
+
+    facts = build_bus_facts(
+        gtfs_store,
+        [run],
+        [],
+        [unknown_progress],
+        now,
+        {(run.service_date, "sb-3"): prior},
+    )
+
+    assert facts == []
+
+
+def test_explicit_upstream_progress_keeps_bus_visible_after_old_eta(
+    gtfs_store: GtfsStore,
+) -> None:
+    now = datetime(2026, 7, 13, 7, 21, tzinfo=UTC)
+    run = _run(gtfs_store, "sb-3", now)
+    position = VehiclePosition("sb-3", "1204", "B", 2, StopStatus.IN_TRANSIT_TO, now)
+
+    facts = build_bus_facts(
+        gtfs_store,
+        [run],
+        [_update("sb-3", "A", 1, 480)],
+        [position],
+        now,
+    )
+
+    assert facts[0].trip_id == "sb-3"
 
 
 def test_checkpoint_evidence_prevents_as_of_stop_regression(gtfs_store: GtfsStore) -> None:

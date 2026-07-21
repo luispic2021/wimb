@@ -32,8 +32,10 @@ def render_snapshot(snapshot: RouteSnapshot, color: bool | None = None) -> str:
                 arrival = f"Arrives in: {_duration(seconds_until)}"
             else:
                 arrival = f"Arrival estimate overdue by: {_duration(abs(seconds_until))}"
+            eta = bus.estimated_arrival.strftime("%-I:%M %p")
+            lines.append(f"ETA: {eta} · {arrival}")
             lines.append(
-                f"{arrival} as of {bus.as_of_stop.name} · "
+                f"{_deviation(bus.deviation_seconds)} as of {bus.as_of_stop.name} · "
                 f"{_freshness(bus.observed_at, snapshot.fetched_at)}"
             )
         elif bus.tracking_status is TrackingStatus.NOT_DEPARTED:
@@ -52,6 +54,14 @@ def _duration(total_seconds: int) -> str:
     minutes, seconds = divmod(total_seconds, 60)
     minute_unit = "minute" if minutes == 1 else "minutes"
     return f"{minutes} {minute_unit} and {seconds:02d} seconds"
+
+
+def _deviation(seconds: int | None) -> str:
+    assert seconds is not None
+    if abs(seconds) <= 59:
+        return "ON TIME"
+    state = "behind" if seconds > 0 else "ahead"
+    return f"{_duration(abs(seconds))} {state}"
 
 
 def _freshness(observed_at: datetime | None, fetched_at: datetime) -> str:

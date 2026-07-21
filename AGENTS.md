@@ -71,6 +71,9 @@ Uvicorn process.
 - Retain only the furthest confirmed evidence per service-date/trip in
   `.wimb/route-progress.json`. This expiring correctness cache is not a vehicle
   history; never infer a stop when both current evidence and the cache are absent.
+- When current vehicle progress is missing, do not use a checkpoint beyond the
+  selected stop's scheduled time plus its confirmed deviation. Explicit current
+  progress upstream or past the selected stop takes precedence over that ETA guard.
 
 ## Setup and commands
 

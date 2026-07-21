@@ -68,14 +68,18 @@ function busCard(bus) {
     ? `${escapeHtml(bus.deviation_label)} as of ${escapeHtml(bus.evidence_stop_name)}`
     : escapeHtml(bus.deviation_label);
   const vehicle = bus.vehicle_id ? ` · Vehicle ${escapeHtml(bus.vehicle_id)}` : "";
+  const tracking = bus.estimated_arrival
+    ? `<p class="deviation">ETA: ${formatTime(bus.estimated_arrival)}</p>
+      <p class="evidence">${evidence}</p>`
+    : `<p class="deviation">${evidence}</p>`;
   return `
     <article class="bus-card">
       <div class="bus-topline">
         <h3 class="bus-identity">Bus ${bus.run_number} of ${bus.run_total}</h3>
         <span class="scheduled">Scheduled ${formatTime(bus.scheduled_time)}</span>
       </div>
-      <p class="deviation">${evidence}</p>
-      <p class="evidence">${escapeHtml(bus.freshness)}${vehicle}</p>
+      ${tracking}
+      <p class="meta">${escapeHtml(bus.freshness)}${vehicle}</p>
     </article>`;
 }
 

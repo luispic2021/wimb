@@ -53,6 +53,7 @@ def build_bus_facts(
         if selected_run is None:
             continue
         prior = (prior_progress or {}).get((selected_run.service_date, trip_id))
+        current_progress = _position_progress_sequence(gtfs, selected_run, position)
         if not is_still_approaching(
             gtfs,
             selected_run,
@@ -64,6 +65,8 @@ def build_bus_facts(
         current_evidence = _current_stop_evidence(gtfs, trip_id, update, position)
         evidence = _furthest_evidence(current_evidence, prior)
         if evidence is None:
+            continue
+        if current_progress is None and _estimated_arrival_has_passed(selected_run, evidence, now):
             continue
         facts.append(
             BusFact(
@@ -129,11 +132,17 @@ def build_bus_listing(
                 prior.stop_sequence if prior else None,
             ):
                 continue
+            current_progress = _position_progress_sequence(gtfs, run, position)
+            if current_progress is None:
+                if prior is not None and _estimated_arrival_has_passed(run, prior, now):
+                    continue
+                if prior is None and now > run.scheduled_departure:
+                    continue
             status = TrackingStatus.UNAVAILABLE
         elif (
             prior is not None
             and prior.stop_sequence < run.stop_time.stop_sequence
-            and now <= run.scheduled_departure + SCHEDULE_FALLBACK_LATE
+            and not _estimated_arrival_has_passed(run, prior, now)
         ):
             status = TrackingStatus.UNAVAILABLE
         elif run.scheduled_departure >= now:
@@ -195,9 +204,7 @@ def is_still_approaching(
     confirmed_stop_sequence: int | None = None,
 ) -> bool:
     """Use vehicle progress first, then a deliberately bounded schedule fallback."""
-    progress_sequence = position.current_stop_sequence
-    if progress_sequence is None and position.stop_id:
-        progress_sequence = gtfs.stop_sequence(run.stop_time.trip_id, position.stop_id)
+    progress_sequence = _position_progress_sequence(gtfs, run, position)
     if confirmed_stop_sequence is not None:
         checkpoint_progress = confirmed_stop_sequence
         if position.status is not StopStatus.STOPPED_AT:
@@ -210,6 +217,23 @@ def is_still_approaching(
         <= now
         <= run.scheduled_departure + SCHEDULE_FALLBACK_LATE
     )
+
+
+def _position_progress_sequence(
+    gtfs: GtfsStore, run: ScheduledRun, position: VehiclePosition
+) -> int | None:
+    if position.current_stop_sequence is not None:
+        return position.current_stop_sequence
+    if position.stop_id:
+        return gtfs.stop_sequence(run.stop_time.trip_id, position.stop_id)
+    return None
+
+
+def _estimated_arrival_has_passed(
+    run: ScheduledRun, evidence: ProgressEvidence, now: datetime
+) -> bool:
+    estimate = run.scheduled_departure + timedelta(seconds=evidence.delay_seconds)
+    return now > estimate
 
 
 def _current_stop_evidence(

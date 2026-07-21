@@ -64,6 +64,7 @@ class BusStatus(ApiModel):
     run_number: int
     run_total: int
     scheduled_time: AwareDatetime
+    estimated_arrival: AwareDatetime | None
     tracking_status: str
     deviation_seconds: int | None
     deviation_label: str
