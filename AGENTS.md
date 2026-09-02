@@ -93,6 +93,18 @@ discover Route 154 stops with `.venv/bin/wimb --list-stops`.
 Run the local web application with `make web`; its OpenAPI documentation is at
 `/docs`.
 
+## Pull request workflow
+
+When implementation work for a task is complete on a feature branch, push it
+and open a pull request without waiting to be asked separately — treat task
+completion itself as the request. Immediately after opening (or updating) the
+PR, run the `code-review` skill with `--fix` against it (medium effort by
+default; high for a large or security-sensitive change) and push any
+resulting fixes as follow-up commits on the same PR before reporting
+completion. Summarize both the change and what the self-review caught and
+fixed. This does not authorize skipping `make test` and `make lint`, force
+pushes, merging, or approving the PR — those remain the user's call.
+
 ## Configuration, security, and conventions
 
 Keep the 511 key in `WIMB_API_KEY` in the shell or an untracked `.env`; never print,
