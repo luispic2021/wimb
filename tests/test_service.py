@@ -12,13 +12,19 @@ from wimb.models import DataStatus
 from wimb.service import WimbService
 
 
+def _feed_with_timestamp(timestamp: datetime) -> gtfs_realtime_pb2.FeedMessage:
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.header.gtfs_realtime_version = "2.0"
+    feed.header.timestamp = int(timestamp.timestamp())
+    return feed
+
+
 class _RealtimeClient:
-    def __init__(self, timestamp: datetime) -> None:
+    def __init__(self, timestamp: datetime, vehicle_timestamp: datetime | None = None) -> None:
         self.trip_calls = 0
         self.vehicle_calls = 0
-        self.feed = gtfs_realtime_pb2.FeedMessage()
-        self.feed.header.gtfs_realtime_version = "2.0"
-        self.feed.header.timestamp = int(timestamp.timestamp())
+        self.feed = _feed_with_timestamp(timestamp)
+        self.vehicle_feed = _feed_with_timestamp(vehicle_timestamp or timestamp)
 
     def fetch_trip_updates(self, _operator_id: str) -> gtfs_realtime_pb2.FeedMessage:
         self.trip_calls += 1
@@ -26,7 +32,7 @@ class _RealtimeClient:
 
     def fetch_vehicle_positions(self, _operator_id: str) -> gtfs_realtime_pb2.FeedMessage:
         self.vehicle_calls += 1
-        return self.feed
+        return self.vehicle_feed
 
 
 def test_live_snapshot_time_is_captured_after_realtime_requests(
@@ -51,6 +57,28 @@ def test_live_snapshot_time_is_captured_after_realtime_requests(
     assert snapshot.fetched_at == completed_time
 
 
+def test_snapshot_reports_the_older_of_the_two_realtime_feed_generation_times(
+    gtfs_store: GtfsStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_time = datetime(2026, 7, 13, 7, 20, tzinfo=UTC)
+    trip_generated_at = datetime(2026, 7, 13, 7, 19, 50, tzinfo=UTC)
+    vehicle_generated_at = datetime(2026, 7, 13, 7, 19, 55, tzinfo=UTC)
+    client = _RealtimeClient(trip_generated_at, vehicle_generated_at)
+    service = WimbService(client, tmp_path, stale_after_seconds=90, clock=lambda: request_time)  # type: ignore[arg-type]
+    monkeypatch.setattr(WimbService, "_operator_id", lambda self, now: "GG")
+    monkeypatch.setattr(
+        service_module.GtfsStore,
+        "cached",
+        classmethod(lambda cls, client, cache_dir, operator_id, now: gtfs_store),
+    )
+
+    snapshot = service.snapshot("B", 0, 2)
+
+    assert snapshot.realtime_feed_generated_at == trip_generated_at
+
+
 def test_no_service_snapshot_avoids_realtime_quota(
     gtfs_store: GtfsStore,
     tmp_path: Path,
@@ -72,6 +100,7 @@ def test_no_service_snapshot_avoids_realtime_quota(
     assert snapshot.buses == ()
     assert snapshot.no_additional_buses is True
     assert snapshot.realtime_checked is False
+    assert snapshot.realtime_feed_generated_at is None
     assert (client.trip_calls, client.vehicle_calls) == (0, 0)
 
 

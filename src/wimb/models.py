@@ -133,6 +133,11 @@ class RouteSnapshot:
     no_additional_buses: bool = False
     data_status: DataStatus = DataStatus.LIVE
     realtime_checked: bool = True
+    # When 511 itself last generated the TripUpdates/VehiclePositions feeds used for
+    # this snapshot (the older of the two headers) - independent of WIMB's own cache
+    # or of any individual bus's evidence age, so upstream feed staleness is
+    # distinguishable from a stuck cache or a vehicle with no new confirmed progress.
+    realtime_feed_generated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
