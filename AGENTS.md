@@ -97,13 +97,19 @@ Run the local web application with `make web`; its OpenAPI documentation is at
 
 When implementation work for a task is complete on a feature branch, push it
 and open a pull request without waiting to be asked separately — treat task
-completion itself as the request. Immediately after opening (or updating) the
-PR, run the `code-review` skill with `--fix` against it (medium effort by
-default; high for a large or security-sensitive change) and push any
-resulting fixes as follow-up commits on the same PR before reporting
-completion. Summarize both the change and what the self-review caught and
-fixed. This does not authorize skipping `make test` and `make lint`, force
-pushes, merging, or approving the PR — those remain the user's call.
+completion itself as the request. Before opening the PR, if the change is
+user-facing (behavior, API, or CLI), update `CHANGELOG.md` and bump
+`version` in `pyproject.toml` together with `__version__` in
+`src/wimb/__init__.py` — keep those two in sync. Use a minor bump for
+added or changed behavior and a patch bump for a fix-only change; skip the
+bump for changes with no user-facing effect (docs, internal tooling, tests).
+Immediately after opening (or updating) the PR, run the `code-review` skill
+with `--fix` against it (medium effort by default; high for a large or
+security-sensitive change) and push any resulting fixes as follow-up commits
+on the same PR before reporting completion. Summarize both the change and
+what the self-review caught and fixed. This does not authorize skipping
+`make test` and `make lint`, force pushes, merging, or approving the PR —
+those remain the user's call.
 
 ## Configuration, security, and conventions
 
