@@ -87,6 +87,8 @@ class StatusResponse(ApiModel):
     no_additional_buses: bool
     data_status: str
     feed_status: FeedStatus
+    realtime_feed_generated_at: AwareDatetime | None
+    realtime_feed_age_seconds: int | None
     generated_at: AwareDatetime
 
 

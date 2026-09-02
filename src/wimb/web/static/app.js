@@ -91,6 +91,11 @@ function busCard(bus) {
     </article>`;
 }
 
+function formatAge(seconds) {
+  if (seconds === null || seconds === undefined) return null;
+  return seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`;
+}
+
 function renderStatus(payload) {
   statusPanel.setAttribute("aria-busy", "false");
   const stateMessage = stateMessages[payload.data_status];
@@ -101,9 +106,15 @@ function renderStatus(payload) {
   const exhausted = payload.no_additional_buses
     ? `<div class="state-card"><p class="state-title">End of today’s timetable</p><p class="state-copy">No additional buses are scheduled in this direction today.</p></div>`
     : "";
+  const feedAge = formatAge(payload.realtime_feed_age_seconds);
+  // Diagnostic for PBOT-585: when 511 itself last generated the realtime feed,
+  // separate from any individual bus's evidence age or WIMB's own cache.
+  const feedMeta = feedAge
+    ? `<p class="meta">511 feed generated ${escapeHtml(feedAge)}</p>`
+    : "";
   statusPanel.innerHTML = `
     <p class="status-heading">${escapeHtml(payload.direction_label)} · ${escapeHtml(payload.stop_name)}</p>
-    ${notice}${cards}${exhausted}`;
+    ${feedMeta}${notice}${cards}${exhausted}`;
 }
 
 function readUrlSelection() {
