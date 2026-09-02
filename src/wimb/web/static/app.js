@@ -6,6 +6,11 @@ const statusPanel = document.querySelector("#status");
 const DIRECTION_PLACEHOLDER = "Select a direction";
 const STOP_PLACEHOLDER = "Select a stop";
 
+// Bumped whenever the active direction/stop selection changes so that a
+// slower, now-stale loadStops()/loadStatus() response can detect it is no
+// longer relevant and avoid overwriting the UI for the current selection.
+let requestToken = 0;
+
 const stateMessages = {
   no_service: ["Route 154 is not operating now", "There are no applicable timetable runs for this service day."],
   no_live_vehicles: ["No live Route 154 vehicle", "The timetable is available, but 511 is not reporting a live Route 154 vehicle."],
@@ -126,6 +131,7 @@ function promptForStop() {
 
 async function loadStatus() {
   if (!directionSelect.value || !stopSelect.value) return;
+  const token = ++requestToken;
   refreshButton.disabled = true;
   showLoading("Reading the latest confirmed evidence.");
   try {
@@ -133,22 +139,28 @@ async function loadStatus() {
       direction_id: directionSelect.value,
       stop_id: stopSelect.value,
     });
-    renderStatus(await api(`/api/v1/routes/154/status?${query}`));
+    const payload = await api(`/api/v1/routes/154/status?${query}`);
+    if (token !== requestToken) return;
+    renderStatus(payload);
   } catch (error) {
+    if (token !== requestToken) return;
     errorState(error);
   } finally {
-    refreshButton.disabled = false;
+    if (token === requestToken) refreshButton.disabled = false;
   }
 }
 
 async function loadStops(preselectStopId = null) {
+  const token = ++requestToken;
   stopSelect.disabled = true;
   stopSelect.innerHTML = `<option value="">${STOP_PLACEHOLDER}</option>`;
-  promptForStop();
+  refreshButton.disabled = true;
   showLoading("Loading stops in timetable order.");
   try {
     const payload = await api(`/api/v1/routes/154/stops?direction_id=${encodeURIComponent(directionSelect.value)}`);
+    if (token !== requestToken) return;
     if (!payload.stops.length) {
+      updateUrl(directionSelect.value, null);
       showState("No stops found", "This direction has no published Route 154 stops.");
       return;
     }
@@ -166,6 +178,7 @@ async function loadStops(preselectStopId = null) {
       promptForStop();
     }
   } catch (error) {
+    if (token !== requestToken) return;
     errorState(error);
   }
 }
@@ -196,6 +209,7 @@ async function start() {
 
 directionSelect.addEventListener("change", () => {
   if (!directionSelect.value) {
+    requestToken += 1; // invalidate any in-flight loadStops()/loadStatus() for the prior direction
     updateUrl(null, null);
     stopSelect.innerHTML = `<option value="">${STOP_PLACEHOLDER}</option>`;
     stopSelect.disabled = true;
@@ -207,6 +221,7 @@ directionSelect.addEventListener("change", () => {
 });
 stopSelect.addEventListener("change", () => {
   if (!stopSelect.value) {
+    requestToken += 1; // invalidate any in-flight loadStatus() for the prior stop
     updateUrl(directionSelect.value, null);
     promptForStop();
     return;
