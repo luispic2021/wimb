@@ -227,6 +227,11 @@ def _status_response(
     direction_id: int,
     direction_label: str,
 ) -> StatusResponse:
+    realtime_feed_age_seconds = (
+        max(0, int((snapshot.fetched_at - snapshot.realtime_feed_generated_at).total_seconds()))
+        if snapshot.realtime_feed_generated_at is not None
+        else None
+    )
     return StatusResponse(
         route_id=snapshot.route_id,
         route_name=service.route_name(),
@@ -238,6 +243,8 @@ def _status_response(
         no_additional_buses=snapshot.no_additional_buses,
         data_status=snapshot.data_status.value,
         feed_status=(FeedStatus.FRESH if snapshot.realtime_checked else FeedStatus.NOT_REQUESTED),
+        realtime_feed_generated_at=snapshot.realtime_feed_generated_at,
+        realtime_feed_age_seconds=realtime_feed_age_seconds,
         generated_at=snapshot.fetched_at,
     )
 

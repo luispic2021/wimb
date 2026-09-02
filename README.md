@@ -105,6 +105,15 @@ in front of a Uvicorn process bound to localhost on the same DigitalOcean drople
 the external port, Caddy configuration, DNS, and droplet provisioning are not
 assumed by the application.
 
+`/api/v1/routes/154/status` reports `realtime_feed_generated_at` and
+`realtime_feed_age_seconds`: the older of the TripUpdates/VehiclePositions header
+timestamps 511 itself attached to the feeds behind this response, and its age
+relative to `generated_at`. This is independent of WIMB's own 60-second cache and
+of any single bus's evidence age (`buses[].observed_at`) — it isolates whether a
+"stuck" display is WIMB serving a stale cache entry or 511's upstream feed itself
+not having advanced. The web UI shows it as a small "511 feed generated Xs/Xm ago"
+line above the bus list.
+
 ## Usage
 
 ```sh
