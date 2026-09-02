@@ -235,6 +235,14 @@ footer {
   margin-top: 0.75rem;
 }
 
+/* The feed-age diagnostic line sits directly in the status-panel grid (which
+   already applies `gap: 1rem` between children), not inside a bus card after
+   other paragraphs - so it shouldn't also carry .meta's card-internal
+   margin-top, or it gets double-spaced above the rest of the status content. */
+.status-panel > .meta {
+  margin-top: 0;
+}
+
 .status-heading {
   margin: 0.6rem 0 0;
   color: var(--muted);
