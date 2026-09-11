@@ -229,6 +229,22 @@ make lint
 Tests use local GTFS text fixtures and in-memory protobuf fixtures; no tests call
 the network.
 
+## Deploying updates
+
+On the production droplet, [`scripts/update.sh`](scripts/update.sh) pulls the
+latest `main` with `--ff-only`, reinstalls the package into the existing
+`/opt/wimb/.venv`, restarts the `wimb.service` systemd unit, and polls
+`/health` until it responds before exiting:
+
+```sh
+ssh <droplet-user>@<droplet-host> /opt/wimb/scripts/update.sh
+```
+
+It refuses to run if `/opt/wimb` has uncommitted changes to tracked files or
+isn't on `main`, and does nothing (no restart, no downtime) if there is
+nothing new to pull. It does not provision, configure, or manage anything
+beyond that one service.
+
 ## Route 154 audit collector
 
 [`scripts/audit_route_154.py`](scripts/audit_route_154.py) is a cron-oriented audit

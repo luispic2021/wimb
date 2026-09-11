@@ -37,6 +37,10 @@ This is a modular Python monolith with terminal and FastAPI delivery layers:
   browser data access goes only through `/api/v1`.
 - `scripts/audit_route_154.py`: cron-invoked Route 154 CLI audit capture; it records
   validation evidence and is not application operational logging.
+- `scripts/update.sh`: droplet-side update script. Pulls `main` with
+  `--ff-only`, reinstalls the package into the existing venv, restarts the
+  `wimb.service` systemd unit, and confirms `/health` before exiting. It does
+  not provision, configure, or manage infrastructure beyond that.
 - `tests/fixtures`: offline GTFS text fixtures; protobuf fixtures are built in memory.
 
 Keep domain and presentation logic separate. The CLI and FastAPI layer must call
@@ -142,8 +146,10 @@ never expose secrets or raw internal exceptions in HTTP responses or logs.
 
 ## Explicitly out of scope
 
-Do not add other transit routes, deployment automation, Caddy configuration,
-containers, multiple Uvicorn workers, shared caches such as Redis, accounts,
-subscriptions, databases, historical tracking beyond the expiring latest-progress
-checkpoint, maps, notifications, machine learning, frontend frameworks, or broad
+Do not add other transit routes, deployment automation beyond `scripts/update.sh`
+(which only pulls `main`, reinstalls, and restarts the existing `wimb.service`
+unit on the droplet that already runs it), Caddy configuration, containers,
+multiple Uvicorn workers, shared caches such as Redis, accounts, subscriptions,
+databases, historical tracking beyond the expiring latest-progress checkpoint,
+maps, notifications, machine learning, frontend frameworks, or broad
 architectural restructuring.
