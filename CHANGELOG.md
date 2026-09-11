@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4.0
+
+### Added
+
+- The status API and web UI report when 511 itself last generated the
+  TripUpdates/VehiclePositions feeds behind a response
+  (`realtime_feed_generated_at`, `realtime_feed_age_seconds`), independent of
+  WIMB's own realtime cache and of any individual bus's evidence age. Added
+  while investigating PBOT-585 to make it possible to tell a stuck WIMB cache
+  apart from a 511 feed that genuinely hasn't advanced.
+
 ## v0.3.0
 
 ### Added

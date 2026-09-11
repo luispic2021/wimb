@@ -120,6 +120,9 @@ class WimbService:
         current_time = now or self._clock()
         self._assert_fresh(trip_feed, "TripUpdates", current_time)
         self._assert_fresh(vehicle_feed, "VehiclePositions", current_time)
+        feed_generated_at = _oldest_timestamp(
+            feed_timestamp(trip_feed), feed_timestamp(vehicle_feed)
+        )
         updates = [item for item in trip_updates(trip_feed) if item.route_id in (ROUTE_ID, None)]
         positions = [
             item
@@ -161,6 +164,7 @@ class WimbService:
             current_time,
             no_additional_buses,
             data_status,
+            realtime_feed_generated_at=feed_generated_at,
         )
 
     def _gtfs(self, now: datetime) -> GtfsStore:
@@ -195,3 +199,8 @@ class WimbService:
         timestamp = feed_timestamp(feed)
         if timestamp is None or now - timestamp > timedelta(seconds=self._stale_after_seconds):
             raise StaleFeedError(f"{label} feed is stale; WIMB will not show it as live data.")
+
+
+def _oldest_timestamp(*values: datetime | None) -> datetime | None:
+    present = [value for value in values if value is not None]
+    return min(present) if present else None

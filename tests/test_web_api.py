@@ -73,6 +73,7 @@ class _Service:
             NOW,
             False,
             DataStatus.LIVE,
+            realtime_feed_generated_at=NOW - timedelta(seconds=9),
         )
 
 
@@ -236,6 +237,8 @@ def test_successful_status_has_explicit_schema_and_aware_timestamps(client: Test
     assert payload["stop_id"] == "40581"
     assert payload["data_status"] == "live"
     assert payload["feed_status"] == "fresh"
+    assert payload["realtime_feed_generated_at"] == (NOW - timedelta(seconds=9)).isoformat()
+    assert payload["realtime_feed_age_seconds"] == 9
     assert datetime.fromisoformat(payload["generated_at"]).tzinfo is not None
     bus = payload["buses"][0]
     assert bus == {
