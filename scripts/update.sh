@@ -9,6 +9,13 @@ REPO_DIR="/opt/wimb"
 SERVICE="wimb.service"
 HEALTH_URL="http://127.0.0.1:8000/health"
 HEALTH_RETRIES=10
+HEALTH_CURL_TIMEOUT=2
+# Tracks the last commit that was actually installed, restarted, and confirmed
+# healthy - not just the last commit pulled. Comparing against this (rather
+# than "did git pull change anything") means a retry after a failed install or
+# restart still reinstalls/restarts/health-checks instead of silently no-oping
+# because the sha was already pulled on a prior, failed run.
+STATE_FILE="$REPO_DIR/.wimb/deployed-sha"
 
 cd "$REPO_DIR"
 
@@ -31,21 +38,25 @@ echo "Current: v$before_version ($before_sha)"
 git pull --ff-only origin main
 
 after_sha="$(git rev-parse --short HEAD)"
-if [[ "$after_sha" == "$before_sha" ]]; then
-  echo "Already up to date at v$before_version ($before_sha). Nothing to restart."
+deployed_sha="$(cat "$STATE_FILE" 2>/dev/null || true)"
+
+if [[ "$after_sha" == "$deployed_sha" ]]; then
+  echo "v$before_version ($after_sha) is already installed, restarted, and healthy. Nothing to do."
   exit 0
 fi
 
 "$REPO_DIR/.venv/bin/python" -m pip install -q -e "$REPO_DIR"
 after_version="$("$REPO_DIR/.venv/bin/python" -c 'import wimb; print(wimb.__version__)')"
-echo "Updated: v$before_version ($before_sha) -> v$after_version ($after_sha)"
+echo "Installed: v$before_version ($before_sha) -> v$after_version ($after_sha)"
 
 echo "Restarting $SERVICE..."
 sudo systemctl restart "$SERVICE"
 
 echo "Waiting for health check at $HEALTH_URL..."
 for _ in $(seq 1 "$HEALTH_RETRIES"); do
-  if curl -sf "$HEALTH_URL" >/dev/null; then
+  if curl -sf --max-time "$HEALTH_CURL_TIMEOUT" "$HEALTH_URL" >/dev/null; then
+    mkdir -p "$(dirname "$STATE_FILE")"
+    echo "$after_sha" > "$STATE_FILE"
     echo "Healthy: v$after_version ($after_sha) is live."
     exit 0
   fi
@@ -54,4 +65,5 @@ done
 
 echo "$SERVICE did not answer $HEALTH_URL within ${HEALTH_RETRIES}s." >&2
 echo "Check: sudo systemctl status $SERVICE  /  journalctl -u $SERVICE -n 50" >&2
+echo "Not recording $after_sha as deployed; re-run once healthy to confirm and record it." >&2
 exit 1
